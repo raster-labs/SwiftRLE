@@ -1,7 +1,7 @@
-# Milestone R0 — Owner decision register and governance record
+# Owner decision register and governance record — SwiftRLE
 
 **Date**: 23 October 2026  
-**Milestone**: `R0`  
+**Milestone**: `R1` (updated from accepted `R0` commit `b778f21cf0619418e739b625e5861d8584d20819`)
 **Status**: Owner-approved decisions recorded; governs `SwiftRLE` milestones `R0`–`R5` and deferred `DICOMKit` milestones `D0`–`D4`.
 
 ---
@@ -17,11 +17,11 @@
 | **DEC-05** | **Sequencing & `DICOMKit` boundary** | Execute `SwiftRLE` milestones **`R0`–`R5` first**, one milestone per fresh chat, with independent engineering audit and formal acceptance between milestones. Defer all `DICOMKit` changes (`D0`–`D4`) until `SwiftRLE` is independently qualified. | `R3` verifies the `swiftrle-cli` tool, a separately packaged real `SwiftRLE <-> SwiftJLS` shared-storage harness and a `DICOMKit`-facing adapter proof **outside** `DICOMKit`. Zero edits to `DICOMKit` or sibling codec repositories are permitted during `R0`–`R5`. |
 | **DEC-06** | **Common API & memory contract** | Implement the normative `COMMON_API.md` (`0.7.0`) and `MEMORY_CONTRACT.md` (`0.7.0`) types and call shapes (`Encoder`, `Decoder`, `ImageDescriptor`, `PlaneDescriptor`, `Image`, `ImageDestination`, `ReadOnlyImageStorage`, `WritableImageStorage`, `OwnedImageStorage`, `StorageWriteLease`, `ResourceLimits`, `OperationReport`, `CodecCapabilities`, `CodecError`), with async `encode`/`decode`, synchronous `inspect`, explicit `encodeSynchronously`/`decodeSynchronously` wrappers (`API-03`) and justified RLE extensions (`API-13`). | Rejects unsupported substitute type names or synchronous-only replacements of the common surface. Preserves module independence (`SwiftRLE` imports no sibling codec or `CompressionFamily`). |
 | **DEC-07** | **Version identifiers & release tags** | Use `0.1.0-dev.1` as the initial development identifier when `VERSION` / CLI support arrives, and `1.0.0` as the intended first stable target after full `R5` qualification. No git tag or GitHub release is authorised during `R0`–`R5` scaffolding/implementation without separate explicit release instruction. | Prevents premature stability or conformance claims before all oracle, sanitizer, fuzz, cross-codec and platform gates pass. |
+| **DEC-08** | **Milestone branch, PR & Codex merge policy** | Every milestone (`R1`–`R5`) uses a dedicated branch (`milestone/r1` through `milestone/r5`) branched from the latest accepted/merged `main` commit. No direct commits or pushes to `main` are permitted for `R1`–`R5`. After independent Codex audit and formal acceptance of a milestone's local contents, the authorised publication step is to commit and push `milestone/rN` and open **one** pull request targeting `main` for Codex exact-head CI review. The owner explicitly authorises Codex to review required CI on the exact accepted PR head and merge it into `main`. Antigravity must not merge; no auto-merge, branch deletion or tag/release is authorised. | Enforces clean per-milestone PR boundaries, CI visibility and explicit Codex acceptance and exact-head CI gates before starting the next milestone in a fresh chat. |
 
 ---
 
-## 2. Remote repository provisioning status at R0
+## 2. Repository publication and milestone status
 
-The exact public repository [`https://github.com/raster-labs/SwiftRLE`](https://github.com/raster-labs/SwiftRLE) has been provisioned and authorised write access has been verified. The local repository has `origin` configured to `https://github.com/raster-labs/SwiftRLE.git`, while the remote remains empty prior to audited publication.
-
-Final R0 publication and acceptance remain pending independent verification of these updated records and the published initial commit. Operational credential and access-verification details are retained in the local audit receipt, not in public repository documentation.
+- **Milestone R0 (Accepted & Published)**: Published on `main` at commit [`b778f21cf0619418e739b625e5861d8584d20819`](https://github.com/raster-labs/SwiftRLE/commit/b778f21cf0619418e739b625e5861d8584d20819) (tree `1b32a8597427447ded73fe059ddab6c4c756e207`) and formally accepted by independent audit on 23 October 2026.
+- **Milestone R1 (Prepared on `milestone/r1`)**: Implemented locally on branch `milestone/r1` from `b778f21cf0619418e739b625e5861d8584d20819`, awaiting independent audit before committing/pushing `milestone/r1` and opening the R1 pull request to `main` for Codex CI review and authorised merge.

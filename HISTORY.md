@@ -16,6 +16,8 @@ On 23 October 2026, the owner authorised creating `raster-labs/SwiftRLE` as the 
 | Historical handoff suite pins compared | `SwiftJ2K` [`8578b53f52292c04667ca6fca2944708ec198f3b`](https://github.com/raster-labs/SwiftJ2K/commit/8578b53f52292c04667ca6fca2944708ec198f3b), `SwiftJLS` [`6aab2622e3ed0b3ee1ec0c9e3a84564bd27fb2db`](https://github.com/raster-labs/SwiftJLS/commit/6aab2622e3ed0b3ee1ec0c9e3a84564bd27fb2db), `SwiftJXL` [`876e5cb285fd1db347a5907179da091959e1fff5`](https://github.com/raster-labs/SwiftJXL/commit/876e5cb285fd1db347a5907179da091959e1fff5), `SwiftJLI` [`2dc3e4a613df290f16904d5dc541202a44ca9862`](https://github.com/raster-labs/SwiftJLI/commit/2dc3e4a613df290f16904d5dc541202a44ca9862) |
 | Predecessor licence | MIT (`Copyright (c) 2026 rasterdevapps`) — `DICOMKit` remains MIT |
 | `SwiftRLE` licence | Apache-2.0 (`Copyright 2026 Raster Images Private Limited`), retaining full `DICOMKit` MIT notices and provenance |
+| Published R0 foundation commit | [`b778f21cf0619418e739b625e5861d8584d20819`](https://github.com/raster-labs/SwiftRLE/commit/b778f21cf0619418e739b625e5861d8584d20819) (tree `1b32a8597427447ded73fe059ddab6c4c756e207`, formally accepted 23 October 2026) |
+| Milestone R1 development branch | `milestone/r1` (branched from `b778f21cf0619418e739b625e5861d8584d20819`; standalone `Package.swift`, common API/owning storage and scalar `PackBitsEncoder`/`PackBitsDecoder`) |
 
 ## Pinned `DICOMKit` extraction and context paths (`4b68d7e22829418c88e48dd53d98b25fee50d90d`)
 
@@ -32,3 +34,7 @@ On 23 October 2026, the owner authorised creating `raster-labs/SwiftRLE` as the 
 | [`LICENSE`](https://github.com/raster-labs/DICOMKit/blob/4b68d7e22829418c88e48dd53d98b25fee50d90d/LICENSE) | `4c0768004e1c88e30b7c28f3f4ea03998c351c89b81db0d05e333998acf8b9f4` | 1,070 | 21 | Preserved verbatim in [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) |
 
 See [Documentation/BASELINE_AUDIT.md](Documentation/BASELINE_AUDIT.md) for the complete diff analysis between `c0dd2b682a8a921ca72745312d390eae0980dcd3`, `9bd891660f0dc253871a92576f6f594f05feddb3` and `4b68d7e22829418c88e48dd53d98b25fee50d90d`, caller inventory, defect reconciliation and executed predecessor test receipts.
+
+## R1 common surface provenance
+
+The common owning API is adapted from Apache-2.0 in-house reference code in `raster-labs/SwiftJ2K` at `be4e7a3ad352759e7a78a90f6a2e2c3b7aa0f748`. Each destination below retains the corresponding `Sources/SwiftJ2K/` filename: `Sources/SwiftRLE/Errors.swift`, `ImageDescriptor.swift`, `ImageStorage.swift`, `Image.swift`, `Options.swift`, `Telemetry.swift` and the common portions of `CodecAPI.swift`. RLE-specific configurations, PackBits operations and audit regressions are added in SwiftRLE. DICOMKit-derived kernel and test paths retain their separate per-file MIT provenance comments and full notices.

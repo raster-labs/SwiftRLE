@@ -1,0 +1,136 @@
+name: SwiftRLE milestone gates
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: swiftrle-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  linux:
+    name: Linux ${{ matrix.runner }} Swift ${{ matrix.swift }}
+    runs-on: ${{ matrix.runner }}
+    container: swift:${{ matrix.swift }}-noble
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        swift: ['6.2.4', '6.4.0']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install independent oracle
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libtiff-tools python3
+      - name: Validate exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          engine=native
+          if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
+          python3 Scripts/validate-r1.py --build-system "$engine" --output "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: linux-${{ matrix.runner }}-${{ matrix.swift }}
+          path: |
+            ${{ runner.temp }}/evidence/*.log
+            ${{ runner.temp }}/evidence/receipt.json
+          if-no-files-found: error
+  macos:
+    name: macOS arm64 Swift ${{ matrix.swift }}
+    runs-on: macos-26
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ['6.2', '6.4.0']
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install Swift 6.4 official toolchain
+        if: matrix.swift == '6.4.0'
+        run: |
+          curl --fail --location --retry 3 https://download.swift.org/swift-6.4.0-release/xcode/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE-osx.pkg -o "$RUNNER_TEMP/swift.pkg"
+          pkgutil --check-signature "$RUNNER_TEMP/swift.pkg"
+          sudo installer -pkg "$RUNNER_TEMP/swift.pkg" -target /
+          toolchain_swift="$(xcrun --toolchain swift --find swift)"
+          test -x "$toolchain_swift"
+          "$toolchain_swift" --version
+          dirname "$toolchain_swift" >> "$GITHUB_PATH"
+      - name: Install independent oracle and record environment
+        run: |
+          brew list --versions libtiff || brew install libtiff
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          sw_vers
+      - name: Validate exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift --version | tee "$RUNNER_TEMP/swift-version.log"
+          expected='6[.]2([.]0)?'
+          if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then expected='6[.]4([.]0)?'; fi
+          grep -E "Swift version ${expected} " "$RUNNER_TEMP/swift-version.log"
+          engine=native
+          if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
+          python3 Scripts/validate-r1.py --build-system "$engine" --output "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: macos-arm64-${{ matrix.swift }}
+          path: |
+            ${{ runner.temp }}/evidence/*.log
+            ${{ runner.temp }}/evidence/receipt.json
+          if-no-files-found: error
+  apple-sdks:
+    name: Apple OS 26 SDK builds
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Compile library for Apple devices and simulators
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sdk-logs"
+          xcodebuild -version | tee "$RUNNER_TEMP/sdk-logs/environment.log"
+          xcodebuild -showsdks >> "$RUNNER_TEMP/sdk-logs/environment.log"
+          for sdk in iphoneos iphonesimulator appletvos appletvsimulator xros xrsimulator watchos watchsimulator; do
+            case "$sdk" in
+              iphoneos) triple=arm64-apple-ios26.0 ;;
+              iphonesimulator) triple=arm64-apple-ios26.0-simulator ;;
+              appletvos) triple=arm64-apple-tvos26.0 ;;
+              appletvsimulator) triple=arm64-apple-tvos26.0-simulator ;;
+              xros) triple=arm64-apple-xros26.0 ;;
+              xrsimulator) triple=arm64-apple-xros26.0-simulator ;;
+              watchos) triple=arm64_32-apple-watchos26.0 ;;
+              watchsimulator) triple=arm64-apple-watchos26.0-simulator ;;
+            esac
+            # Compile against the installed SDK; simulator runtimes are a separate gate.
+            sdk_path="$(xcrun --sdk "$sdk" --show-sdk-path)"
+            sdk_version="$(xcrun --sdk "$sdk" --show-sdk-version)"
+            test "$sdk_version" = '26.0'
+            echo "$sdk $sdk_version $triple $sdk_path" | tee "$RUNNER_TEMP/sdk-logs/$sdk.log"
+            swift build --build-system native --target SwiftRLE --triple "$triple" --sdk "$sdk_path" --scratch-path "$RUNNER_TEMP/build-$sdk" -j 2 2>&1 | tee -a "$RUNNER_TEMP/sdk-logs/$sdk.log"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: apple-os26-sdk-builds
+          path: ${{ runner.temp }}/sdk-logs
+          if-no-files-found: error
