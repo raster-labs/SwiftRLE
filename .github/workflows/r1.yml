@@ -112,16 +112,21 @@ jobs:
           xcodebuild -showsdks >> "$RUNNER_TEMP/sdk-logs/environment.log"
           for sdk in iphoneos iphonesimulator appletvos appletvsimulator xros xrsimulator watchos watchsimulator; do
             case "$sdk" in
-              iphoneos) destination='generic/platform=iOS' ;;
-              iphonesimulator) destination='generic/platform=iOS Simulator' ;;
-              appletvos) destination='generic/platform=tvOS' ;;
-              appletvsimulator) destination='generic/platform=tvOS Simulator' ;;
-              xros) destination='generic/platform=visionOS' ;;
-              xrsimulator) destination='generic/platform=visionOS Simulator' ;;
-              watchos) destination='generic/platform=watchOS' ;;
-              watchsimulator) destination='generic/platform=watchOS Simulator' ;;
+              iphoneos) triple=arm64-apple-ios26.0 ;;
+              iphonesimulator) triple=arm64-apple-ios26.0-simulator ;;
+              appletvos) triple=arm64-apple-tvos26.0 ;;
+              appletvsimulator) triple=arm64-apple-tvos26.0-simulator ;;
+              xros) triple=arm64-apple-xros26.0 ;;
+              xrsimulator) triple=arm64-apple-xros26.0-simulator ;;
+              watchos) triple=arm64_32-apple-watchos26.0 ;;
+              watchsimulator) triple=arm64-apple-watchos26.0-simulator ;;
             esac
-            xcodebuild -scheme SwiftRLE -sdk "$sdk" -destination "$destination" -derivedDataPath "$RUNNER_TEMP/derived-$sdk" CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/sdk-logs/$sdk.log"
+            # Compile against the installed SDK; simulator runtimes are a separate gate.
+            sdk_path="$(xcrun --sdk "$sdk" --show-sdk-path)"
+            sdk_version="$(xcrun --sdk "$sdk" --show-sdk-version)"
+            test "$sdk_version" = '26.0'
+            echo "$sdk $sdk_version $triple $sdk_path" | tee "$RUNNER_TEMP/sdk-logs/$sdk.log"
+            swift build --build-system native --target SwiftRLE --triple "$triple" --sdk "$sdk_path" --scratch-path "$RUNNER_TEMP/build-$sdk" -j 2 2>&1 | tee -a "$RUNNER_TEMP/sdk-logs/$sdk.log"
           done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
