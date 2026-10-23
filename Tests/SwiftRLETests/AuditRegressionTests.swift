@@ -62,7 +62,11 @@ struct AuditRegressionTests {
             }
         }
         for length in [127, 128, 129, 255, 256, 257] {
-            let row = (0..<length).map { UInt8(($0 / 3 * 2 + ($0 % 3 == 0 ? 0 : 1)) % 251) }
+            let row: [UInt8] = (0..<length).map { index in
+                let pair = (index / 3) * 2
+                let offset = index % 3 == 0 ? 0 : 1
+                return UInt8((pair + offset) % 251)
+            }
             let bytes = Data(row + row)
             let bound = try PackBitsEncoder.worstCaseEncodedByteCount(forByteCount: bytes.count, rowBytes: length, rowCount: 2)
             #expect(try encoder.encode(bytes, rowBytes: length, rowCount: 2).data.count <= bound)

@@ -32,6 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           engine=native
           if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
           python3 Scripts/validate-r1.py --build-system "$engine" --output "$RUNNER_TEMP/evidence"
@@ -63,10 +64,13 @@ jobs:
           curl --fail --location --retry 3 https://download.swift.org/swift-6.4.0-release/xcode/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE-osx.pkg -o "$RUNNER_TEMP/swift.pkg"
           pkgutil --check-signature "$RUNNER_TEMP/swift.pkg"
           sudo installer -pkg "$RUNNER_TEMP/swift.pkg" -target /
-          echo '/Library/Developer/Toolchains/swift-6.4.0-RELEASE.xctoolchain/usr/bin' >> "$GITHUB_PATH"
+          toolchain_swift="$(xcrun --toolchain swift --find swift)"
+          test -x "$toolchain_swift"
+          "$toolchain_swift" --version
+          dirname "$toolchain_swift" >> "$GITHUB_PATH"
       - name: Install independent oracle and record environment
         run: |
-          brew list libtiff || brew install libtiff
+          brew list --versions libtiff || brew install libtiff
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
           sw_vers
@@ -74,7 +78,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          swift --version | grep -E 'Swift version ${{ matrix.swift }}'
+          swift --version | tee "$RUNNER_TEMP/swift-version.log"
+          expected='6[.]2([.]0)?'
+          if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then expected='6[.]4([.]0)?'; fi
+          grep -E "Swift version ${expected} " "$RUNNER_TEMP/swift-version.log"
           engine=native
           if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
           python3 Scripts/validate-r1.py --build-system "$engine" --output "$RUNNER_TEMP/evidence"
@@ -104,7 +111,17 @@ jobs:
           xcodebuild -version | tee "$RUNNER_TEMP/sdk-logs/environment.log"
           xcodebuild -showsdks >> "$RUNNER_TEMP/sdk-logs/environment.log"
           for sdk in iphoneos iphonesimulator appletvos appletvsimulator xros xrsimulator watchos watchsimulator; do
-            xcodebuild -scheme SwiftRLE -sdk "$sdk" -derivedDataPath "$RUNNER_TEMP/derived-$sdk" CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/sdk-logs/$sdk.log" 2>&1
+            case "$sdk" in
+              iphoneos) destination='generic/platform=iOS' ;;
+              iphonesimulator) destination='generic/platform=iOS Simulator' ;;
+              appletvos) destination='generic/platform=tvOS' ;;
+              appletvsimulator) destination='generic/platform=tvOS Simulator' ;;
+              xros) destination='generic/platform=visionOS' ;;
+              xrsimulator) destination='generic/platform=visionOS Simulator' ;;
+              watchos) destination='generic/platform=watchOS' ;;
+              watchsimulator) destination='generic/platform=watchOS Simulator' ;;
+            esac
+            xcodebuild -scheme SwiftRLE -sdk "$sdk" -destination "$destination" -derivedDataPath "$RUNNER_TEMP/derived-$sdk" CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/sdk-logs/$sdk.log"
           done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
