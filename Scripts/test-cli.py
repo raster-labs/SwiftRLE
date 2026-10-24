@@ -58,7 +58,24 @@ with tempfile.TemporaryDirectory(prefix='SwiftRLE é ') as temp:
  manual=d/'stage/Swift RLE é/share/man/man1/swiftrle-cli.1';assert manual.read_bytes()==(root/'ManPages/swiftrle-cli.1').read_bytes();manual.write_text('stale')
  subprocess.run([str(root/'Scripts/install-cli.sh'),binary],env=env,check=True);assert manual.read_bytes()==(root/'ManPages/swiftrle-cli.1').read_bytes()
  render=subprocess.run(['/usr/bin/mandoc','-Tascii',str(manual)] if pathlib.Path('/usr/bin/mandoc').exists() else ['groff','-man','-Tascii',str(manual)],stdout=subprocess.PIPE,stderr=subprocess.PIPE);assert render.returncode==0 and b'EXIT STATUS' in re.sub(rb'.\x08',b'',render.stdout)
- lookup=subprocess.run(['man','-w','-M',str(manual.parents[1]),'swiftrle-cli'],stdout=subprocess.PIPE,stderr=subprocess.PIPE);assert lookup.returncode==0 and b'swiftrle-cli.1' in lookup.stdout
+ # man-db may search as its unprivileged cache owner. Only these synthetic
+ # fixture ancestors become traversable; never chmod user/system directories.
+ # Keep the real -M lookup and Unicode/space prefix rather than bypassing it.
+ ancestors=[d,d/'stage',d/'stage/Swift RLE é',d/'stage/Swift RLE é/share',manual.parents[1],manual.parent]
+ modes_before=[format(path.stat().st_mode & 0o777,'04o') for path in ancestors]
+ for path in ancestors:path.chmod(0o755)
+ lookup=subprocess.run(['man','-w','-M',str(manual.parents[1]),'swiftrle-cli'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+ def lookup_text(value):return value.decode('utf-8',errors='replace').replace(str(d),'<fixture>')[-4096:]
+ lookup_record={'case':'staged-man-lookup','command':['man','-w','-M','<fixture>/stage/Swift RLE é/share/man','swiftrle-cli'],'exit':lookup.returncode,'stdout':lookup_text(lookup.stdout),'stderr':lookup_text(lookup.stderr),'synthetic_ancestor_modes_before':modes_before,'synthetic_ancestor_modes_after':[format(path.stat().st_mode & 0o777,'04o') for path in ancestors],'manual_mode':format(manual.stat().st_mode & 0o777,'04o'),'runtime':os.uname().sysname}
+ if os.uname().sysname=='Linux':
+  version=subprocess.run(['man','--version'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+  lookup_record['man_version']={'exit':version.returncode,'stdout':lookup_text(version.stdout),'stderr':lookup_text(version.stderr)}
+ if lookup.returncode!=0:
+  debug=subprocess.run(['man','--debug','-w','-M',str(manual.parents[1]),'swiftrle-cli'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+  lookup_record['failed_lookup_debug']={'exit':debug.returncode,'stdout':lookup_text(debug.stdout),'stderr':lookup_text(debug.stderr)}
+ (out/'man-lookup.json').write_text(json.dumps(lookup_record,indent=2)+'\n')
+ actual_paths=[pathlib.Path(line).resolve() for line in lookup.stdout.decode('utf-8',errors='replace').splitlines()]
+ assert lookup.returncode==0 and manual.resolve() in actual_paths,json.dumps(lookup_record,sort_keys=True)
  checks.append({'case':'staged-install-update-man-render-lookup','exit':0})
  assert not list(d.glob('.swiftrle-*.tmp'))
 (out/'cli.json').write_text(json.dumps({'passed':True,'tests':len(checks),'checks':checks},indent=2)+'\n');print('CLI checks passed:',len(checks))
