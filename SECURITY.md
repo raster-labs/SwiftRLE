@@ -4,7 +4,7 @@
 
 `SwiftRLE` treats all compressed PackBits byte streams, 64-byte DICOM RLE frame headers, segment offset tables, NRRD/raw CLI inputs and caller-supplied descriptors as untrusted input.
 
-## Security invariants required in implementation (`R1`–`R5`)
+## Implemented invariants and qualification boundary
 
 1. **Checked arithmetic before allocation or indexing**: validate dimensions, component counts, storage/meaningful bits, strides, plane offsets, segment offsets and expected decoded lengths using overflow-checked integer arithmetic (`addingReportingOverflow`, `multipliedReportingOverflow`). Reject invalid or overflowing inputs with `CodecError(.invalidArgument, ...)` or `CodecError(.resourceLimitExceeded, ...)`.
 2. **No input-dependent traps**: library code must never force-unwrap (`!`), force-cast (`as!`), perform unchecked integer narrowing/negation (`Int8.min` `-128` negation trap), index out of bounds on sliced `Data` (`startIndex != 0`), or call `fatalError`/`precondition`/`exit` on malformed input.
@@ -16,3 +16,9 @@
 4. **Independent admission budgets (`ResourceLimits`)**: check `maximumCompressedBytes`, `maximumDecodedBytes`, `maximumWorkspaceBytes`, `maximumPixels`, `maximumDimension`, `maximumFrames`, `maximumMetadataBytes`, `maximumWorkers`, `deadlineSeconds` and aggregate `maximumMemoryBytes` before allocation. Untrusted input may never enlarge a limit.
 5. **Memory ownership and concurrency safety**: pointers borrowed from `ReadOnlyImageStorage` or `WritableImageStorage` (`StorageWriteLease`) are synchronous and must never escape, be shared across concurrent tasks, or span `await`. Failed or cancelled writes after mutation begins must invalidate the `ImageDestination` and never publish partial pixel data.
 6. **Safe diagnostics and zero PHI**: `CodecError` messages and CLI stderr output may report field names, byte offsets and error categories, but must never include pixel values, patient metadata, raw memory addresses or arbitrary payload dumps.
+
+## Executed security evidence and remaining gates
+
+R4 accepted source was separately exercised under AddressSanitizer and ThreadSanitizer, with ordinary-build allocation/copy checks and deterministic bounded mutation campaigns of at least one hour per PackBits, strict DICOM and NRRD surface. See [R4 qualification](Documentation/R4_QUALIFICATION.md) for exact source/environment and limitations. This is engineering evidence, not a security certification or exhaustive coverage-guided fuzz claim.
+
+Runtime checks, device identity and unavailable minimum-OS/physical-device gates are recorded in [R5 qualification](Documentation/R5_QUALIFICATION.md). Resource profile limits are admission ceilings, not validated physical-device memory guarantees. No automatic spill, runtime codec fetch or external executable fallback exists. The library does not parse DICOM files/datasets; callers own external descriptor/metadata correctness and container policies. Advanced storage providers must retain real allocations, enforce the lease lifecycle and prevent unsafe pointer escape.

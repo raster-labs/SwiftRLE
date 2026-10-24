@@ -73,13 +73,17 @@ jobs:
             ${{ steps.validate-linux.outputs.r3-evidence-path }}/allocator-audit/instrumentation.patch
           if-no-files-found: error
   macos:
-    name: macOS arm64 Swift ${{ matrix.swift }}
-    runs-on: macos-26
-    timeout-minutes: 30
+    name: macOS ${{ matrix.arch }} Swift ${{ matrix.swift }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        swift: ['6.2', '6.4.0']
+        include:
+          - {runner: macos-26, arch: arm64, swift: '6.2'}
+          - {runner: macos-26, arch: arm64, swift: '6.4.0'}
+          - {runner: macos-26-intel, arch: x86_64, swift: '6.2'}
+          - {runner: macos-26-intel, arch: x86_64, swift: '6.4.0'}
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
     steps:
@@ -110,6 +114,65 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          # sysctlbyname preserves errno: only ENOENT means this optional OID
+          # is absent. Permission/I/O/read errors must fail closed.
+          EXPECTED_NATIVE_ARCH='${{ matrix.arch }}' python3 - <<'PY_NATIVE' | tee "$RUNNER_TEMP/evidence/native-identity.log"
+          import ctypes
+          import errno
+          import json
+          import os
+          import platform
+          import struct
+          import sys
+
+          expected = os.environ['EXPECTED_NATIVE_ARCH']
+          libc = ctypes.CDLL(None, use_errno=True)
+          sysctl = libc.sysctlbyname
+          sysctl.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t]
+          sysctl.restype = ctypes.c_int
+
+          def read(name):
+              key = name.encode('ascii')
+              size = ctypes.c_size_t()
+              if sysctl(key, None, ctypes.byref(size), None, 0) != 0:
+                  raise OSError(ctypes.get_errno(), name)
+              if not 0 < size.value <= 4096:
+                  raise RuntimeError('Invalid sysctl size: ' + name)
+              buffer = ctypes.create_string_buffer(size.value)
+              if sysctl(key, buffer, ctypes.byref(size), None, 0) != 0:
+                  raise OSError(ctypes.get_errno(), name)
+              return buffer.raw[:size.value]
+
+          def integer(name):
+              value = read(name)
+              if len(value) != 4:
+                  raise RuntimeError('Invalid sysctl integer: ' + name)
+              return struct.unpack('=i', value)[0]
+
+          try:
+              translated = integer('sysctl.proc_translated')
+              translation = {'value': translated, 'status': 'present'}
+          except OSError as error:
+              if error.errno != errno.ENOENT:
+                  raise
+              translated = 0
+              translation = {'status': 'absent', 'errno': error.errno}
+
+          machine = platform.machine()
+          cpu_type = integer('hw.cputype')
+          brand = read('machdep.cpu.brand_string').rstrip(b'\0').decode('ascii')
+          # CPU family is independent of the kernel's optional ABI architecture bits.
+          required_cpu_family = {'arm64': 12, 'x86_64': 7}[expected]
+          required_brand = 'Apple' if expected == 'arm64' else 'Intel'
+          identity = {'expected': expected, 'system': platform.system(), 'processArchitecture': machine,
+                      'pointerBits': struct.calcsize('P') * 8, 'cpuType': cpu_type, 'cpuBrand': brand,
+                      'translation': translation}
+          print(json.dumps(identity, sort_keys=True))
+          if platform.system() != 'Darwin' or machine != expected or struct.calcsize('P') != 8 or translated != 0 or (cpu_type & 0x00FFFFFF) != required_cpu_family or required_brand not in brand:
+              sys.exit('Native process/CPU identity mismatch')
+          PY_NATIVE
+          { uname -a; arch; sw_vers; xcrun --sdk macosx --show-sdk-version; swift -print-target-info; } > "$RUNNER_TEMP/evidence/native-environment.log"
           swift --version | tee "$RUNNER_TEMP/swift-version.log"
           expected='6[.]2([.]0)?'
           if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then expected='6[.]4([.]0)?'; fi
@@ -121,7 +184,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: macos-arm64-${{ matrix.swift }}
+          name: macos-${{ matrix.arch }}-${{ matrix.swift }}
           path: |
             ${{ runner.temp }}/evidence/*.log
             ${{ runner.temp }}/evidence/receipt.json

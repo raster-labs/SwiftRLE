@@ -1,4 +1,4 @@
-# SwiftRLE implementation plan, Milestone R1 status and R2 handoff
+# SwiftRLE implementation plan and qualification status
 
 ## 1. Approved milestone sequence (`R0`–`R5`), branch/PR workflow and scope boundary
 
@@ -9,9 +9,9 @@
 | **R0** | Repository foundation, latest `DICOMKit` (`4b68d7e2`) & common contract (`0.10.0`/`0.7.0`) pins, read-only source/caller/profile inventory, isolated predecessor RLE test baseline and R1 handoff | Repository identity, source freshness, Apache-2.0/MIT notices, contract SHA-256 verification, baseline test receipt and untouched `DICOMKit` checkout verified by audit | **ACCEPTED & PUBLISHED on `main` (`b778f21cf0619418e739b625e5861d8584d20819`, tree `1b32a8597427447ded73fe059ddab6c4c756e207`)** |
 | **R1** | Standalone `SwiftRLE` package (`Package.swift`), common owning API & storage surface, scalar PackBits byte engine (`PackBitsEncoder`, `PackBitsDecoder`), independent consumer and unit/lifetime/limit tests | PackBits known vectors, `libtiff` oracle, `StorageWriteLease` lifetime, `ResourceLimits` and standalone dependency checks pass | **Accepted and merged through PR #1 (`60af084d25522fafebb71abfeb37f4635dc2af3b`)** |
 | **R2** | Strict DICOM RLE frame profile (`RLEFrameDescriptor`, `DICOMRLEHeader`, `DICOMRLEFrame`), direct final-buffer scatter/gather and supported sample/layout matrix | Independent `DCMTK`/`GDCM` interoperability, exact supported 8/16-bit mono/RGB layouts, malformed-input/resource regressions and zero intermediate full-plane allocations pass | Accepted and merged PR #2 at `aa29491f`; exact-head run `40069324499` all seven gates |
-| **R3** | `swiftrle-cli` executable (`SwiftRLECLI`), `ManPages/swiftrle-cli.1`, installer, separately packaged real cross-codec harness (`RLE <-> JPEG-LS` via `SwiftJLS`) and `DICOMKit`-facing interface proof **outside `DICOMKit`** | Real `SwiftRLE <-> SwiftJLS` shared-storage proof (`16-in-16` and `12-in-16`), CLI contract/pipe/exit tests and external adapter proof pass with zero `DICOMKit` edits | Implemented; qualification is bound to per-revision audit receipts; see Documentation/R3_INTEGRATION.md |
-| **R4** | Measured SIMD/UMA/concurrency optimisations and optional GPU evaluation | Scalar differential parity, ASan/TSan/lifetime gates and reproducible release benchmark gates pass with zero hidden full-image copies | Queued |
-| **R5** | Final documentation, provenance/licence audit, clean URL consumer/install verification and advertised platform/profile qualification | All claims bound to passing evidence; unavailable environments/peers recorded as unexecuted/blocked; no automatic tag/release | Queued |
+| **R3** | `swiftrle-cli` executable (`SwiftRLECLI`), `ManPages/swiftrle-cli.1`, installer, separately packaged real cross-codec harness (`RLE <-> JPEG-LS` via `SwiftJLS`) and `DICOMKit`-facing interface proof **outside `DICOMKit`** | Real `SwiftRLE <-> SwiftJLS` shared-storage proof (`16-in-16` and `12-in-16`), CLI contract/pipe/exit tests and external adapter proof pass with zero `DICOMKit` edits | Accepted and merged PR #3 at `a72aa30f84129c2add8b84008675061203f8bbc0`; see Documentation/R3_INTEGRATION.md |
+| **R4** | Measured SIMD/UMA/concurrency optimisations and optional GPU evaluation | Scalar differential parity, ASan/TSan/lifetime gates and reproducible release benchmark gates pass with zero hidden full-image copies | Accepted and merged PR #4 at `d43bc2aaec0c511c6e583dea42dcb57298d8a000`; accepted head `ae654f73`, exact-head run `40093317140`, all seven jobs |
+| **R5** | Final documentation, provenance/licence audit, clean URL consumer/install verification and advertised platform/profile qualification | All claims bound to passing evidence; unavailable environments/peers recorded as unexecuted/blocked; no automatic tag/release | In progress; local qualification and external mandatory gaps in Documentation/R5_QUALIFICATION.md; no final acceptance |
 | **D0–D4** | `DICOMKit` caller baseline lock-in, `RLECodec.swift` adapter cutover, `CompressionManager`/`TransferSyntaxConverter` integration and workload benchmarks | Separately authorised phase after `R5`; **not part of `R0`–`R5`** | **DEFERRED** |
 
 ---
@@ -78,4 +78,4 @@
 
 ## R2 local implementation checkpoint
 
-See [Documentation/R2_FRAME_PROFILE.md](Documentation/R2_FRAME_PROFILE.md) for the implemented kernel, supported semantics, memory formula, raw route and reproducible checks. R2 is submitted for independent audit before publication; no later milestone starts from a developer completion claim.
+See [Documentation/R2_FRAME_PROFILE.md](Documentation/R2_FRAME_PROFILE.md) for the implemented kernel, supported semantics, memory formula, raw route and reproducible checks. R2 was independently accepted and merged. R0–R4 are accepted; R5 remains incomplete until every mandatory qualification gate passes. Historical R1 handoff requirements above are retained as a dated implementation record, not current unsupported-operation claims.

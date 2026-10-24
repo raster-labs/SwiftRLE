@@ -29,3 +29,7 @@
 ## 3. Owner workflow update — 24 October 2026
 
 **DEC-09** supersedes the fresh-chat/Antigravity execution route in DEC-05/DEC-08: R2–R5 use GPT-6.1 Sol implementation agents within the existing goal chat, with one bounded milestone at a time and independent root Codex audit. Branch, audit-before-publication, exact-head CI and merge gates remain required. R1 was accepted and merged through PR #1 at `60af084d25522fafebb71abfeb37f4635dc2af3b`; R2 starts from that base. No tag, release, auto-merge, deletion or downstream integration authority is added.
+
+## 4. R5 qualification status — 24 October 2026
+
+R2, R3 and R4 were independently accepted and merged in sequence; R4 main is `d43bc2aaec0c511c6e583dea42dcb57298d8a000`. R5 starts on `milestone/r5` from that merge. R5 may publish independently audited local contents for native Intel and other attainable remote CI checks, while mandatory unavailable target/device gates remain open. Final R5 acceptance/merge still requires all mandatory gates; no hardware waiver, stable version/tag/release, downstream cutover or change to the seven pinned contracts is implied. See [R5 qualification](R5_QUALIFICATION.md).
