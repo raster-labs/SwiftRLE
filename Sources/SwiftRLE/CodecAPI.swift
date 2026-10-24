@@ -301,7 +301,7 @@ public struct Decoder: Sendable {
         let image = try destination.writeValidated(metadata: frame.metadata, validate: { try gate.check() }, admissionCheck: { try gate.check() }) { bytes in
             try DICOMRLEFrame.scatter(data, header: header, descriptor: destination.descriptor, out: bytes,
                 multiplier: options.codecOptions?.maximumPacketOperationsPerOutputByte ?? configuration.codecOptions.maximumPacketOperationsPerOutputByte,
-                canonical: true, normalized: &normalized, gate: gate)
+                canonical: true, normalized: &normalized, gate: gate, policy: options.executionPolicy)
             try gate.check()
         }
         try gate.check()

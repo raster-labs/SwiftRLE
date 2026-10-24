@@ -9,8 +9,10 @@ enum NRRD {
         var cursor = 0, lines = 0, fields: [String:String] = [:], ended = false
         while cursor < data.count {
             guard cursor < 16_384, lines < 64 else { throw CLIError(5) }
-            guard let end = data[cursor..<min(data.count, min(16_384,cursor + 1026))].firstIndex(of:10), end - cursor <= 1024, end < 16_384 else { throw CLIError(3) }
-            var bytes = data[cursor..<end]; if bytes.last == 13 { bytes = bytes.dropLast() }
+            guard let absoluteEnd = data[(data.startIndex + cursor)..<(data.startIndex + min(data.count, min(16_384,cursor + 1026)))].firstIndex(of:10) else { throw CLIError(3) }
+            let end = absoluteEnd - data.startIndex
+            guard end - cursor <= 1024, end < 16_384 else { throw CLIError(3) }
+            var bytes = data[(data.startIndex + cursor)..<absoluteEnd]; if bytes.last == 13 { bytes = bytes.dropLast() }
             guard bytes.allSatisfy({ ($0 >= 32 && $0 <= 126) || $0 == 9 }), let line = String(data:bytes,encoding:.ascii) else { throw CLIError(3) }
             cursor = end + 1; lines += 1
             if lines == 1 { guard ["NRRD0001","NRRD0002","NRRD0003","NRRD0004","NRRD0005"].contains(line) else { throw CLIError(3) }; continue }
@@ -28,7 +30,7 @@ enum NRRD {
         guard sizes.count == 2, let width = Int(sizes[0]), let height = Int(sizes[1]), width > 0, height > 0 else { throw CLIError(3) }
         let frame = try RLEFrameDescriptor(width:width,height:height,byteOrder: fields["endian"] == "little" ? .littleEndian : .bigEndian,limits:limits)
         guard data.count - cursor == frame.imageDescriptor.requiredByteCount else { throw CLIError(3) }
-        return (frame,Data(data[cursor...]))
+        return (frame,Data(data[(data.startIndex + cursor)...]))
     }
     static func header(_ frame: RLEFrameDescriptor) throws -> Data {
         guard frame.sampleType == .unsignedInteger, frame.storageBits == 16, frame.meaningfulBits == 16, frame.colour == .greyscale, frame.samplesPerPixel == 1, frame.imageDescriptor.planes[0].rowBytes == frame.width * 2 else { throw CLIError(4) }
