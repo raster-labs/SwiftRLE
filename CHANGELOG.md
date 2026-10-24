@@ -1,5 +1,11 @@
 # Change log
 
+## Unreleased — Milestone R3 CLI and integration, 2026-10-24
+
+- Added dependency-free `swiftrle-cli`, strict attached raw UInt16 NRRD interchange, bounded cancellable/deadline-aware I/O, atomic final-output publication, manual and PREFIX/DESTDIR installer.
+- Added separately packaged pinned SwiftJLS real shared-owner transcodes, external DICOMKit candidate adapter, process/pipe/oracle/allocator/mutation gates and six-host CI extensions.
+- R2 was accepted and merged through PR #2; R3 validation is bound to per-revision audit receipts. R4/R5 and downstream cutover remain open. See [R3 integration](Documentation/R3_INTEGRATION.md).
+
 ## Unreleased — Milestone R1 standalone package, owning API and scalar PackBits, 2026-10-23
 
 - Created standalone `Package.swift` (Swift tools `6.2`, Swift 6 language mode, Apple OS `26.0` deployment floors, zero external dependencies) and independent consumer package (`Examples/Consumer`).

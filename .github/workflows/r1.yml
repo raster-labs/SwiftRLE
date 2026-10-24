@@ -24,10 +24,25 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Install independent oracle
+      - name: Install independent oracle and real manual tool
+        shell: bash
         run: |
+          set -euo pipefail
           apt-get update
-          apt-get install -y --no-install-recommends libtiff-tools dcmtk python3 python3-pip python3-venv
+          apt-get install -y --no-install-recommends libtiff-tools dcmtk python3 python3-pip python3-venv groff-base man-db
+          # Ubuntu minimized images divert man-db to man.REAL and leave a
+          # success-exiting notice at /usr/bin/man. Restore only that diversion,
+          # as Ubuntu unminimize does; do not unminimize the distribution.
+          if [ "$(dpkg-divert --truename /usr/bin/man)" = /usr/bin/man.REAL ]; then
+            test "$(dpkg-divert --listpackage /usr/bin/man)" = LOCAL
+            test -x /usr/bin/man.REAL
+            rm -f /usr/bin/man
+            dpkg-divert --local --divert /usr/bin/man.REAL --remove --rename /usr/bin/man
+          fi
+          test "$(dpkg-divert --truename /usr/bin/man)" = /usr/bin/man
+          mkdir -p "$RUNNER_TEMP/r3-evidence"
+          man --version | tee "$RUNNER_TEMP/r3-evidence/man-version.log"
+          grep -E '^man [0-9]+[.]' "$RUNNER_TEMP/r3-evidence/man-version.log"
           python3 -m venv "$RUNNER_TEMP/oracle-python"
           "$RUNNER_TEMP/oracle-python/bin/pip" install pydicom==2.4.4
           echo "$RUNNER_TEMP/oracle-python/bin" >> "$GITHUB_PATH"
@@ -37,10 +52,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "evidence-path=$RUNNER_TEMP/evidence" >> "$GITHUB_OUTPUT"
+          echo "r3-evidence-path=$RUNNER_TEMP/r3-evidence" >> "$GITHUB_OUTPUT"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           engine=native
           if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
           python3 Scripts/validate-r1.py --build-system "$engine" --output "$RUNNER_TEMP/evidence"
+          python3 Scripts/validate-r3.py --build-system "$engine" --output "$RUNNER_TEMP/r3-evidence"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -49,6 +66,11 @@ jobs:
             ${{ steps.validate-linux.outputs.evidence-path }}/*.log
             ${{ steps.validate-linux.outputs.evidence-path }}/receipt.json
             ${{ steps.validate-linux.outputs.evidence-path }}/*-oracle/oracle.json
+            ${{ steps.validate-linux.outputs.r3-evidence-path }}/*.json
+            ${{ steps.validate-linux.outputs.r3-evidence-path }}/*/*.json
+            ${{ steps.validate-linux.outputs.r3-evidence-path }}/*.log
+            ${{ steps.validate-linux.outputs.r3-evidence-path }}/allocator-audit/allocator.log
+            ${{ steps.validate-linux.outputs.r3-evidence-path }}/allocator-audit/instrumentation.patch
           if-no-files-found: error
   macos:
     name: macOS arm64 Swift ${{ matrix.swift }}
@@ -95,6 +117,7 @@ jobs:
           engine=native
           if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
           python3 Scripts/validate-r1.py --build-system "$engine" --output "$RUNNER_TEMP/evidence"
+          python3 Scripts/validate-r3.py --build-system "$engine" --output "$RUNNER_TEMP/r3-evidence"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -103,6 +126,11 @@ jobs:
             ${{ runner.temp }}/evidence/*.log
             ${{ runner.temp }}/evidence/receipt.json
             ${{ runner.temp }}/evidence/*-oracle/oracle.json
+            ${{ runner.temp }}/r3-evidence/*.json
+            ${{ runner.temp }}/r3-evidence/*/*.json
+            ${{ runner.temp }}/r3-evidence/*.log
+            ${{ runner.temp }}/r3-evidence/allocator-audit/allocator.log
+            ${{ runner.temp }}/r3-evidence/allocator-audit/instrumentation.patch
           if-no-files-found: error
   apple-sdks:
     name: Apple OS 26 SDK builds

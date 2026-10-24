@@ -16,10 +16,12 @@ let package = Package(
         .library(
             name: "SwiftRLE",
             targets: ["SwiftRLE"]
-        )
+        ),
+        .executable(name: "swiftrle-cli", targets: ["SwiftRLECLI"])
     ],
     dependencies: [],
     targets: [
+        .executableTarget(name: "SwiftRLECLI", dependencies: ["SwiftRLE"]),
         .target(
             name: "SwiftRLE",
             swiftSettings: [
