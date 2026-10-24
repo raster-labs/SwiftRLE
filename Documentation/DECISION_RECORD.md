@@ -33,3 +33,9 @@
 ## 4. R5 qualification status — 24 October 2026
 
 R2, R3 and R4 were independently accepted and merged in sequence; R4 main is `d43bc2aaec0c511c6e583dea42dcb57298d8a000`. R5 starts on `milestone/r5` from that merge. R5 may publish independently audited local contents for native Intel and other attainable remote CI checks, while mandatory unavailable target/device gates remain open. Final R5 acceptance/merge still requires all mandatory gates; no hardware waiver, stable version/tag/release, downstream cutover or change to the seven pinned contracts is implied. See [R5 qualification](R5_QUALIFICATION.md).
+
+## 5. Current owner validation scope — 24 October 2026
+
+**DEC-10**: The owner instructed, “limit the validation to macOS and iOS”. Required R5 validation is therefore macOS (native arm64 and Intel x86_64, Swift 6.2 and 6.4) and iOS/iPadOS. Required CI comprises four native macOS/toolchain entries retaining core, CLI, independent oracle and peer integration coverage, plus one iOS 26.0 device/simulator SDK-build job. Previously executed Linux/watchOS/tvOS/visionOS evidence is retained as supplemental; missing validation on those platforms does not block R5 under this current owner scope.
+
+This explicit owner scope takes precedence for R5 acceptance without changing any pinned contract bytes or package manifest targets, removing codec features, or asserting qualification of unexecuted environments. The owner did not waive exact macOS 26.0 runtime or representative physical iPhone/iPad gates; these remain unexecuted unless actual evidence or a separate explicit waiver is recorded. No new validation outside macOS/iOS is required. DICOMKit remains strictly read-only throughout R5; no DICOMKit production code or cutover is included.

@@ -2,7 +2,14 @@
 
 R5 is in progress on `milestone/r5`, based on accepted R4 merge `d43bc2aaec0c511c6e583dea42dcb57298d8a000` (tree `5dba3e4e84e827e24a3d4745d2a9fd37655608a7`). R4 accepted head `ae654f73f6fc6690b9472436577cac18ecdd4e85` passed all seven required jobs in Actions run `40093317140`: six native host/toolchain combinations and eight Apple SDK targets. Root independently audited those artifacts and the merge tree. R5 reuses unchanged core/CLI/integration security, oracle and performance evidence; no repeat one-hour campaigns or benchmarks are implied.
 
-The version remains `0.1.0-dev.1`. Final R5 acceptance, merge, stable version, tag/release and DICOMKit D0–D4 cutover are not claimed. Locally accepted contents may be published for required remote qualification while external device gates remain open.
+The version remains `0.1.0-dev.1`. Final R5 acceptance, merge, stable version, tag/release and DICOMKit D0–D4 cutover are not claimed. PR #5 is open for exact-head CI and independent review; publication does not close external device/runtime gates.
+
+
+## Current owner validation scope
+
+The owner instructed, “limit the validation to macOS and iOS” (DEC-10 in [the decision register](DECISION_RECORD.md)). R5 acceptance now requires macOS and iOS/iPadOS validation. Existing Linux/watchOS/tvOS/visionOS runs, products and receipts remain supplemental evidence; absent tests or hardware for those platforms no longer block R5. Manifest deployment targets, codec features and the seven pinned contract files are unchanged. This scope change is not a pass for any unexecuted environment.
+
+Future required CI is exactly five jobs: four native macOS entries (arm64/x86_64 × Swift 6.2/6.4) retaining existing core/CLI/oracle/peer integration coverage, and one iOS 26.0 SDK job compiling device and simulator targets. The broader nine-job run `40096783213` at head `8d7a1c497e13dd1f411ef17ea10f594d82faf2c6` is retained as historical broader-scope evidence; its results require independent exact-head review. No new non-macOS/iOS validation is required. The exact macOS 26.0 runtime and representative physical iPhone/iPad tests remain unexecuted mandatory gates unless supported by actual evidence or a separate explicit owner waiver. DICOMKit production source remains untouched and outside R5.
 
 ## Supported scope and retained evidence
 
@@ -35,19 +42,20 @@ python3 Scripts/qualify-runtime.py --output /absolute/new-evidence \
 
 ## Platform evidence matrix
 
-| Environment | Executed evidence | Remaining mandatory scope |
+| Environment | Executed evidence | Current R5 acceptance treatment |
 |---|---|---|
-| macOS arm64, Swift 6.2/6.4 | Accepted R4 native CI on OS 26 runners; local M4/macOS 27.0.1/Swift 6.4 security/performance/oracle evidence | Exact macOS 26.0 runtime qualification remains unavailable locally; runner OS minor/build must be checked |
-| Ubuntu 24.04 x86_64/AArch64, Swift 6.2/6.4 | Accepted R4 native six-host matrix includes all four Linux/toolchain combinations, full core/CLI/oracle/integration | R5 exact-head CI after publication |
-| macOS Intel x86_64, Swift 6.2/6.4 | CI jobs prepared on `macos-26-intel`; native process/host architecture and absence of translation asserted | Both jobs remain unexecuted until published; label alone is no pass |
-| iOS simulator 26.0, iPhone | 42-case fixture passed in actual arm64 process, runtime 26.0 build 23A343 | Representative physical iPhone runtime/device tests |
-| iPadOS simulator 26.0 | 42-case fixture passed in actual arm64 process, runtime 26.0 build 23A343 | Representative physical iPad runtime/device tests |
-| watchOS simulator 26.0 | 42-case bounded Watch fixture passed in actual arm64 process, runtime 26.0 build 23R353 | Representative physical Watch bounded memory/cancellation/resource qualification |
-| tvOS simulator 26.5 | 42-case fixture passed in actual arm64 process, runtime 26.5 build 23L470 | Exact 26.0 runtime and representative physical Apple TV tests |
-| visionOS simulator 26.5 | 42-case fixture passed in actual arm64 process, runtime 26.5 build 23O470 | Exact 26.0 runtime and representative physical Vision Pro tests |
-| Apple SDK devices/simulators | Accepted R4 eight-target builds at 26.0 deployment floor | Compilation does not satisfy runtime gates |
+| macOS arm64, Swift 6.2/6.4 | Accepted R4 OS 26 runner evidence; local M4/macOS 27.0.1/Swift 6.4 security/performance/oracle evidence | Required; exact-head CI and actual runner identity reviewed independently. Exact macOS 26.0 runtime remains unexecuted locally |
+| macOS Intel x86_64, Swift 6.2/6.4 | Native jobs on `macos-26-intel` assert actual process/CPU identity and no translation; current broader CI evidence is retained | Required; both exact-head toolchain jobs and actual OS/architecture facts must pass independent review |
+| iOS simulator 26.0, iPhone | 42-case fixture passed in actual arm64 process, runtime 26.0 build 23A343 | Required simulator evidence retained; representative physical iPhone gate remains unexecuted |
+| iPadOS simulator 26.0 | 42-case fixture passed in actual arm64 process, runtime 26.0 build 23A343 | Required simulator evidence retained; representative physical iPad gate remains unexecuted |
+| iOS device/simulator SDKs | Historical accepted R4 26.0 builds retained; future required SDK job builds `iphoneos` and `iphonesimulator` at 26.0 | Required build evidence; never a substitute for physical runtime tests |
+| Ubuntu 24.04 x86_64/AArch64, Swift 6.2/6.4 | Accepted R4 native core/CLI/oracle/integration evidence and broader R5 CI retained | Supplemental; missing further Linux validation does not block R5 |
+| watchOS simulator 26.0 | 42-case bounded fixture passed in actual arm64 process, runtime 26.0 build 23R353 | Supplemental; missing physical Watch/maximum-memory validation does not block R5 |
+| tvOS simulator 26.5 | 42-case fixture passed in actual arm64 process, runtime 26.5 build 23L470 | Supplemental; missing exact 26.0 or physical Apple TV validation does not block R5 |
+| visionOS simulator 26.5 | 42-case fixture passed in actual arm64 process, runtime 26.5 build 23O470 | Supplemental; missing exact 26.0 or physical Vision Pro validation does not block R5 |
+| Other historical Apple SDK targets | Accepted R4 eight-target build products retained | Supplemental outside iOS; no new validation required |
 
-No physical device was discovered in the local inventory. No simulator, emulation or SDK result substitutes for physical device tests; no unavailable minimum runtime is marked passed. Exact command/exits, compiler/SDK/OS/architecture/device identities and cleanup outcomes are retained in the external completion receipt rather than private machine paths in this repository.
+No physical device was discovered in the local inventory. No simulator, emulation or SDK result substitutes for the required physical iPhone/iPad tests; no unavailable minimum runtime is marked passed. Supplemental platform gaps are retained as limitations, not R5 blockers. Exact command/exits, compiler/SDK/OS/architecture/device identities and cleanup outcomes are retained in the external completion receipt rather than private machine paths in this repository.
 
 ## Clean consumption and CLI/manual installation
 
@@ -57,7 +65,7 @@ The same driver uses a hash-bound existing qualified CLI binary, installs it and
 
 ## External environments needed to finish
 
-Provision native macOS Intel runners for both supported Swift toolchains and retain actual host/process architecture, SDK/OS/toolchain identities and exact-head core/CLI results. Provide an exact macOS 26.0 runtime, exact tvOS/visionOS 26.0 runtimes, and representative supported physical iPhone/iPad/Watch/Apple TV/Vision Pro environments with explicit deployment authority. Execute the same representative profile/resource/cancellation/ownership scope (bounded Watch profile), retain target identities and receipts, then independently audit all required exact-head CI and runtime gates. Unavailable hardware remains a blocker to final acceptance, not a waiver.
+Complete independent exact-head review of the four native macOS/toolchain jobs and the iOS device/simulator SDK job. Provide an exact macOS 26.0 runtime and representative supported physical iPhone/iPad environments with explicit deployment authority. Execute representative profile/resource/cancellation/ownership checks and retain actual target identities and receipts. These macOS/iOS runtime/device gaps remain blockers unless actual evidence or a separate explicit owner waiver resolves them. Linux, Watch, Apple TV and Vision Pro gaps are supplemental limitations under DEC-10 and do not block R5; no further validation on those platforms is required.
 
 ## R5 integration cancellation-test sequencing repair
 

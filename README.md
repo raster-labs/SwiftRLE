@@ -2,14 +2,14 @@
 
 Standalone PackBits and DICOM RLE frame compression for the **Swift Image Compression Suite**. The library and `swiftrle-cli` have zero external package dependencies.
 
-**R0–R4 are independently accepted and merged. R5 qualification is in progress.** R4 is merged through [PR #4](https://github.com/raster-labs/SwiftRLE/pull/4) at `d43bc2aaec0c511c6e583dea42dcb57298d8a000`; its exact accepted head passed all seven required CI jobs. Final platform/device gates remain open. There is no stable release or tag. See [qualification and remaining gates](Documentation/R5_QUALIFICATION.md).
+**R0–R4 are independently accepted and merged. R5 qualification is in progress.** R4 is merged through [PR #4](https://github.com/raster-labs/SwiftRLE/pull/4) at `d43bc2aaec0c511c6e583dea42dcb57298d8a000`; its exact accepted head passed all seven required CI jobs. Required R5 validation is macOS and iOS/iPadOS by current owner decision; exact macOS 26.0 and physical iPhone/iPad runtime gates remain open. Other-platform evidence is supplemental. There is no stable release or tag. See [qualification and remaining gates](Documentation/R5_QUALIFICATION.md).
 
 ## Package and platforms
 
 - Repository/package/module/library: [`raster-labs/SwiftRLE`](https://github.com/raster-labs/SwiftRLE), `SwiftRLE`.
 - Executable: `swiftrle-cli`; target `SwiftRLECLI`; manual `ManPages/swiftrle-cli.1`.
 - Swift tools 6.2 minimum, Swift 6.4 primary; Swift 6 language mode. Apple deployment minima are exactly macOS/iOS/iPadOS/tvOS/visionOS/watchOS 26.0. Linux reference is Ubuntu 24.04, native x86_64 and AArch64.
-- Deployment declarations, SDK builds, simulator execution and physical-device qualification are distinct. See the [platform evidence matrix](Documentation/R5_QUALIFICATION.md).
+- Current required validation is macOS and iOS/iPadOS; Linux/watchOS/tvOS/visionOS evidence is supplemental. Manifest targets and features remain unchanged. Deployment declarations, SDK builds, simulator execution and physical-device qualification are distinct. See the [platform evidence matrix](Documentation/R5_QUALIFICATION.md).
 
 ## Supported formats and semantics
 
