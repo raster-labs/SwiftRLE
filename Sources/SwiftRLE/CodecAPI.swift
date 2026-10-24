@@ -106,13 +106,15 @@ public struct OperationReport: Sendable, Equatable {
     public let peakPixelBytes: Int?
     public let peakWorkspaceBytes: Int?
     public let elapsedSeconds: Double?
+    public let sampleNormalizations: [String]
     public init(backend: Backend, fallbackReason: String? = nil, fidelity: Fidelity,
                 copyEvents: [CopyEvent] = [], pixelAllocationCount: Int? = nil,
-                peakPixelBytes: Int? = nil, peakWorkspaceBytes: Int? = nil, elapsedSeconds: Double? = nil) {
+                peakPixelBytes: Int? = nil, peakWorkspaceBytes: Int? = nil, elapsedSeconds: Double? = nil, sampleNormalizations: [String] = []) {
         self.backend = backend; self.fallbackReason = fallbackReason; self.fidelity = fidelity
         self.copyEvents = copyEvents; self.pixelAllocationCount = pixelAllocationCount
         self.peakPixelBytes = peakPixelBytes; self.peakWorkspaceBytes = peakWorkspaceBytes
         self.elapsedSeconds = elapsedSeconds
+        self.sampleNormalizations = sampleNormalizations
     }
 }
 
@@ -158,13 +160,10 @@ public struct DecodedImage: Sendable {
     }
 }
 
-/// Image-level RLE encoder (API-01..13).
-/// Milestone R1 establishes the validated contract and scalar PackBits byte engine;
-/// the 2D DICOM RLE frame profile is scheduled for Milestone R2, so `capabilities`
-/// truthfully reports `.contractOnly` (`canEncode == false`) in R1.
+/// Image-level strict DICOM RLE encoder using direct strided byte-lane reads.
 public struct Encoder: Sendable {
     public let configuration: EncoderConfiguration
-    public static let capabilities: CodecCapabilities = .contractOnly
+    public static let capabilities: CodecCapabilities = DICOMRLEFrame.capabilities
     public var capabilities: CodecCapabilities { Self.capabilities }
 
     public init(configuration: EncoderConfiguration = .default) throws {
@@ -184,43 +183,14 @@ public struct Encoder: Sendable {
 
     /// Explicit synchronous convenience wrapper (API-03) calling the same validated kernel.
     public func encodeSynchronously(_ image: Image, options: EncodeOptions = .init()) throws -> EncodedImage {
-        try Task.checkCancellation()
-        _ = try validateExecutionPolicy(options.executionPolicy)
-        try image.descriptor.validate(limits: options.resourceLimits)
-        let metadataBytes = try image.metadata.validate(
-            limits: options.resourceLimits,
-            additionalBytes: image.descriptor.iccProfile?.count ?? 0
-        )
-        guard image.storage.byteCount <= options.resourceLimits.maximumDecodedBytes,
-              try checkedAdd(image.storage.byteCount, metadataBytes) <= options.resourceLimits.maximumMemoryBytes else {
-            throw CodecError(.resourceLimitExceeded, "Image exceeds operation limits.")
-        }
-        if let frameDescriptor = configuration.codecOptions.frameDescriptor {
-            try frameDescriptor.imageDescriptor.validate(limits: options.resourceLimits)
-            guard frameDescriptor.width == image.descriptor.width,
-                  frameDescriptor.height == image.descriptor.height,
-                  frameDescriptor.sampleType == image.descriptor.sampleType,
-                  frameDescriptor.storageBits == image.descriptor.storageBits,
-                  frameDescriptor.meaningfulBits == image.descriptor.meaningfulBits,
-                  frameDescriptor.components == image.descriptor.components,
-                  frameDescriptor.colour == image.descriptor.colour else {
-                throw CodecError(.incompatibleImageLayout, "ImageDescriptor disagrees with configured RLEFrameDescriptor.")
-            }
-        } else {
-            _ = try RLEFrameDescriptor(imageDescriptor: image.descriptor, limits: options.resourceLimits)
-        }
-        throw CodecError(.unsupportedFeature, "DICOM RLE frame encoding is not implemented in Milestone R1; scheduled for Milestone R2.")
+        try DICOMRLEFrame.encode(image, configuration: configuration, options: options)
     }
 }
 
-/// Image-level RLE decoder (API-01..13).
-/// Milestone R1 establishes the validated contract, external `RLEFrameDescriptor` resolution
-/// (`options.codecOptions?.frameDescriptor ?? configuration.codecOptions.frameDescriptor`)
-/// and scalar PackBits byte engine; the 2D DICOM RLE frame profile is scheduled for Milestone R2,
-/// so `capabilities` truthfully reports `.contractOnly` (`canInspect == false`, `canDecode == false`) in R1.
+/// Image-level strict DICOM RLE decoder using one shared final-output kernel.
 public struct Decoder: Sendable {
     public let configuration: DecoderConfiguration
-    public static let capabilities: CodecCapabilities = .contractOnly
+    public static let capabilities: CodecCapabilities = DICOMRLEFrame.capabilities
     public var capabilities: CodecCapabilities { Self.capabilities }
 
     public init(configuration: DecoderConfiguration = .init()) throws {
@@ -237,8 +207,10 @@ public struct Decoder: Sendable {
     /// `DecoderConfiguration.codecOptions`, validating profile and descriptor conflicts.
     func resolveFrameDescriptor(
         for options: DecodeOptions,
-        destinationDescriptor: ImageDescriptor? = nil
+        destinationDescriptor: ImageDescriptor? = nil,
+        check: () throws -> Void = { try Task.checkCancellation() }
     ) throws -> RLEFrameDescriptor {
+        try check()
         if let callOptions = options.codecOptions {
             guard callOptions.profile == .dicomRLEFrame else {
                 throw CodecError(
@@ -248,7 +220,7 @@ public struct Decoder: Sendable {
             }
             if let callDesc = callOptions.frameDescriptor,
                let configDesc = configuration.codecOptions.frameDescriptor,
-               callDesc != configDesc {
+               try !callDesc.equivalent(to: configDesc, check: check) {
                 throw CodecError(
                     .invalidArgument,
                     "DecodeOptions.codecOptions.frameDescriptor conflicts with DecoderConfiguration.codecOptions.frameDescriptor."
@@ -278,10 +250,11 @@ public struct Decoder: Sendable {
     }
 
     public func inspect(_ data: Data, options: DecodeOptions = .init()) throws -> ImageInfo {
-        try Task.checkCancellation()
-        try validateInput(data, options)
-        _ = try resolveFrameDescriptor(for: options)
-        throw CodecError(.unsupportedFeature, "DICOM RLE frame inspection is not implemented in Milestone R1; scheduled for Milestone R2.")
+        let gate = FrameGate(options.resourceLimits)
+        let frame = try resolveFrameDescriptor(for: options, check: { try gate.check() })
+        _ = try DICOMRLEFrame.preflight(data, descriptor: frame, capacity: 0, options: options, gate: gate)
+        try gate.check()
+        return ImageInfo(format: "dicom-rle", descriptor: frame.imageDescriptor, frameCount: 1, metadata: frame.metadata)
     }
 
     @concurrent public func decode(_ data: Data, options: DecodeOptions = .init()) async throws -> DecodedImage {
@@ -298,10 +271,12 @@ public struct Decoder: Sendable {
 
     /// Explicit synchronous convenience wrapper (API-03) calling the same validated kernel.
     public func decodeSynchronously(_ data: Data, options: DecodeOptions = .init()) throws -> DecodedImage {
-        try Task.checkCancellation()
-        try validateInput(data, options)
-        _ = try resolveFrameDescriptor(for: options)
-        throw CodecError(.unsupportedFeature, "DICOM RLE frame decoding is not implemented in Milestone R1; scheduled for Milestone R2.")
+        let gate = FrameGate(options.resourceLimits)
+        let frame = try resolveFrameDescriptor(for: options, check: { try gate.check() })
+        _ = try DICOMRLEFrame.preflight(data, descriptor: frame, capacity: frame.imageDescriptor.requiredByteCount, options: options, gate: gate)
+        try gate.check()
+        let destination = try ImageDestination.allocate(descriptor: frame.imageDescriptor, limits: options.resourceLimits)
+        return try decodeFrame(data, into: destination, options: options, allocations: 1, gate: gate)
     }
 
     /// Explicit synchronous convenience wrapper (API-03) calling the same validated kernel.
@@ -311,12 +286,31 @@ public struct Decoder: Sendable {
         into destination: ImageDestination,
         options: DecodeOptions = .init()
     ) throws -> DecodedImage {
-        try Task.checkCancellation()
-        try validateInput(data, options)
-        _ = try resolveFrameDescriptor(for: options, destinationDescriptor: destination.descriptor)
-        // Preflight rejection performs no write; the caller's destination reservation remains reusable.
-        throw CodecError(.unsupportedFeature, "DICOM RLE frame decoding is not implemented in Milestone R1; scheduled for Milestone R2.")
+        try decodeFrame(data, into: destination, options: options, allocations: 0, gate: FrameGate(options.resourceLimits))
     }
+    private func decodeFrame(_ data: Data, into destination: ImageDestination, options: DecodeOptions,
+                             allocations: Int, gate: FrameGate) throws -> DecodedImage {
+        let frame = try resolveFrameDescriptor(for: options, destinationDescriptor: destination.descriptor, check: { try gate.check() })
+        _ = try RLEFrameDescriptor(imageDescriptor: destination.descriptor, limits: options.resourceLimits)
+        try DICOMRLEFrame.compatible(frame.imageDescriptor, destination.descriptor)
+        let header = try DICOMRLEFrame.preflight(data, descriptor: frame, capacity: destination.storage.byteCount, options: options, gate: gate)
+        let fallback = try validateExecutionPolicy(options.executionPolicy)
+        options.progress?(try ProgressUpdate(phase: .inspecting, completedUnits: 0, totalUnits: 1))
+        try gate.check()
+        var normalized = false
+        let image = try destination.writeValidated(metadata: frame.metadata, validate: { try gate.check() }, admissionCheck: { try gate.check() }) { bytes in
+            try DICOMRLEFrame.scatter(data, header: header, descriptor: destination.descriptor, out: bytes,
+                multiplier: options.codecOptions?.maximumPacketOperationsPerOutputByte ?? configuration.codecOptions.maximumPacketOperationsPerOutputByte,
+                canonical: true, normalized: &normalized, gate: gate)
+            try gate.check()
+        }
+        try gate.check()
+        options.progress?(try ProgressUpdate(phase: .completed, completedUnits: 1, totalUnits: 1))
+        try gate.check()
+        return DecodedImage(image: image, report: DICOMRLEFrame.report(capacity: destination.storage.byteCount,
+            allocations: allocations, fallback: fallback, normalized: normalized))
+    }
+
 }
 
 @discardableResult

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Host correctness gates. Artifacts describe this run, not device qualification."""
+"""R1/R2 host correctness gates. Artifacts describe this run, not device qualification."""
 import argparse
 import hashlib
 import json
@@ -28,14 +28,17 @@ def save():
 
 def run(name, command, tests=False):
     start = time.monotonic()
-    result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    environment = os.environ.copy()
+    if tests:
+        environment['SWIFTRLE_ORACLE_OUTPUT'] = str(out / (name + '-oracle'))
+    result = subprocess.run(command, cwd=root, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     (out / (name + '.log')).write_text(result.stdout)
     item = {'name': name, 'command': command, 'exit': result.returncode,
             'seconds': time.monotonic() - start}
     if tests:
         counts = re.findall(r'Test run with (\d+) tests.*passed', result.stdout)
         item['tests_passed'] = int(counts[-1]) if counts else 0
-        item['test_summary_verified'] = bool(counts) and item['tests_passed'] >= 25
+        item['test_summary_verified'] = bool(counts) and item['tests_passed'] >= 38
     receipt['checks'].append(item)
     save()
     print(name, result.returncode, result.stdout[-2000:], flush=True)
@@ -68,5 +71,13 @@ run('debug', base, tests=True)
 run('release', base + ['-c', 'release'], tests=True)
 run('consumer', ['swift', 'run', '--build-system', args.build_system, '--package-path', 'Examples/Consumer',
                  '--scratch-path', str(out / 'consumer-build'), '-j', '2'])
+receipt['dicom_oracles'] = {}
+for configuration in ['debug', 'release']:
+    oracle_path = out / (configuration + '-oracle') / 'oracle.json'
+    oracle = json.loads(oracle_path.read_text())
+    if oracle.get('two_way_passed', 0) < 27:
+        raise SystemExit('Required DICOM oracle profile coverage missing')
+    receipt['dicom_oracles'][configuration] = {'two_way_passed': oracle['two_way_passed'],
+        'sha256': hashlib.sha256(oracle_path.read_bytes()).hexdigest()}
 receipt['passed'] = True
 save()

@@ -16,6 +16,7 @@ public enum RLEProfile: String, Sendable, Equatable, CaseIterable {
 /// frame geometry, sample type, bit depth and colour semantics must be supplied externally.
 public struct RLEFrameDescriptor: Sendable, Equatable {
     public let imageDescriptor: ImageDescriptor
+    public let metadata: ImageMetadata
     public let planarConfiguration: Int
     public let bytesPerSample: Int
     public let samplesPerPixel: Int
@@ -33,6 +34,7 @@ public struct RLEFrameDescriptor: Sendable, Equatable {
 
     public init(
         imageDescriptor: ImageDescriptor,
+        metadata: ImageMetadata = .empty,
         planarConfiguration: Int? = nil,
         limits: ResourceLimits = .default
     ) throws {
@@ -81,6 +83,16 @@ public struct RLEFrameDescriptor: Sendable, Equatable {
             resolvedPlanar = layoutPlanar
         }
 
+        let roles = imageDescriptor.components
+        let mono = roles == [.grey] && imageDescriptor.colour == .greyscale
+        let palette = roles == [.uninterpreted("palette-index")] && imageDescriptor.colour == .unknown
+        let rgb = roles == [.red, .green, .blue] && imageDescriptor.colour == .rgb
+        let ybr = roles == [.uninterpreted("Y"), .uninterpreted("Cb"), .uninterpreted("Cr")] && imageDescriptor.colour == .unknown
+        guard mono || ((palette || rgb || ybr) && imageDescriptor.sampleType == .unsignedInteger) else {
+            throw CodecError(.unsupportedFeature, "Unsupported component or colour profile; use explicit grey, palette-index, RGB or Y/Cb/Cr roles.")
+        }
+        _ = try metadata.validate(limits: limits, additionalBytes: imageDescriptor.iccProfile?.count ?? 0)
+        self.metadata = metadata
         self.imageDescriptor = imageDescriptor
         self.planarConfiguration = resolvedPlanar
         self.bytesPerSample = bytesPerSample
@@ -173,6 +185,14 @@ public struct RLEFrameDescriptor: Sendable, Equatable {
             limits: limits
         )
         try self.init(imageDescriptor: descriptor, planarConfiguration: planarConfiguration, limits: limits)
+    }
+
+    func equivalent(to other: RLEFrameDescriptor, check: () throws -> Void) throws -> Bool {
+        try check()
+        guard imageDescriptor == other.imageDescriptor, planarConfiguration == other.planarConfiguration else { return false }
+        let result = try metadata.equivalent(to: other.metadata, check: check)
+        try check()
+        return result
     }
 
     public static func greyscale16(
