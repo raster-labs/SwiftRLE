@@ -5,3 +5,8 @@
 /xcuserdata/
 *.profraw
 *.profdata
+
+# Integration packages also retain only source and pinned resolution.
+**/.swiftpm/
+**/.build/
+**/__pycache__/

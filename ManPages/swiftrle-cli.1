@@ -1,0 +1,92 @@
+.TH SWIFTRLE-CLI 1 "24 October 2026" "0.1.0-dev.1" "SwiftRLE"
+.SH NAME
+swiftrle-cli \- bounded PackBits and DICOM RLE frame codec
+.SH SYNOPSIS
+.B swiftrle-cli
+encode|decode|inspect|validate|capabilities [options]
+.SH DESCRIPTION
+Encodes raw bytes as PackBits, or raw/attached NRRD images as DICOM RLE
+frames. Decodes PackBits to raw or DICOM RLE frames to raw/NRRD.
+No extension inference occurs. DICOM RLE is not a DICOM dataset.
+Inspect validates the frame header against external interpretation;
+validate additionally decodes the complete payload.
+.SH OPTIONS
+.B -i, --input PATH; -o, --output PATH
+Select endpoints. A dash denotes stdin/stdout.
+.PP
+.B --input-format; --output-format
+Explicit raw, packbits, dicom-rle-frame or nrrd.
+.PP
+.B --decoded-bytes N
+Mandatory for PackBits decode/inspect/validate. Optional --row-bytes N and
+--rows N constrain packets; their product must agree with decoded bytes.
+.PP
+.B --width; --height; --storage-bits; --meaningful-bits; --sample-type;
+.B --components; --colour; --byte-order; --planar-configuration
+Mandatory external DICOM frame interpretation and requested raw layout.
+Storage bits: 8 or 16; meaningful bits: 1 through storage bits;
+sample type: unsigned or signed; components: 1 or 3;
+colour: greyscale, rgb, palette or ybr-full;
+byte order: little or big; planar configuration: 0 or 1.
+Optional --row-bytes includes padding. These are not RLE header fields.
+.PP
+.B --mode lossless
+Only lossless is supported. Quality/max-error are rejected.
+.PP
+.B --backend automatic|scalar|scalar-cpu|preferred-accelerated|required-accelerated
+Scalar is available; preferred acceleration reports fallback;
+required acceleration fails with exit 4.
+.PP
+.B --copy-policy require-sharing|allow-copy
+Common storage policy, default require-sharing.
+.PP
+.B --threads N; --max-memory BYTES; --timeout SECONDS
+Positive limits. Defaults: 2 workers, 1073741824 bytes, 120 seconds.
+Timeout maximum: 120. The CLI conservatively reserves retained input,
+payload/owner/output buffers and I/O workspace before codec admission;
+individual input/decoded/compressed buffers are limited to approximately
+one eighth of the process budget. Budgets below 65536 bytes fail.
+.PP
+.B --overwrite
+Atomically replace final output. Default publication refuses overwrite,
+including a competing creator. Incomplete sibling transactions are removed.
+.PP
+.B --json; --quiet, -q
+JSON inspection/capabilities use stdout. Encode/decode reports use stderr.
+Quiet suppresses optional diagnostics, never errors or requested output.
+.PP
+.B -v; -vv through -vvvvv; --verbose LEVEL; --verbose=LEVEL;
+.B -verbose: LEVEL; -verbose:LEVEL
+Explicit levels 1 through 5 or plus strings + through +++++.
+Bare --verbose/-verbose increments. Forms apply in argument order.
+Default 0. Quiet conflicts with verbosity. Levels cumulatively add
+summary, stages, configuration, timing and bounded trace. Diagnostics
+exclude paths, payload, private metadata and addresses.
+.PP
+.B -h, --help; help [command]; --version; version
+Help/version aliases. No arguments show help.
+.SH NRRD PROFILE
+Attached ASCII header with LF/CRLF, at most 16384 header bytes,
+64 lines, 1024 bytes per line; raw 2D unsigned full16 greyscale payload,
+explicit endian and fastest width axis. Extra semantic fields, detached
+references, compressed/ASCII payload, skip offsets and 12-in-16 output
+are unsupported. Duplicate fields and sizes before dimension are malformed.
+.SH STREAMS
+Binary stdout contains only payload. Slow I/O uses bounded backpressure
+and checks cancellation/deadline. Failure may leave partial stdout;
+stdout cannot be rolled back. SIGINT/SIGTERM cancel. File output is final
+output only, with no decoded intermediate image files.
+.SH EXAMPLES
+For payload.bin containing exactly 4096 bytes:
+.PP
+.nf
+swiftrle-cli encode -i payload.bin --input-format raw --output-format packbits -o payload.packbits
+swiftrle-cli decode -i payload.packbits --input-format packbits --decoded-bytes 4096 --output-format raw -o restored.bin
+.fi
+.SH EXIT STATUS
+0 success; 2 arguments; 3 malformed; 4 unsupported format/feature/layout/backend;
+5 resource limit/deadline; 6 I/O/storage including broken pipe; 7 internal;
+130 cancellation. Broken pipe never reports success.
+.SH INSTALLATION
+Scripts/install-cli.sh stages binary and matching manual using absolute
+PREFIX and optional DESTDIR. The first argument selects the prebuilt binary.

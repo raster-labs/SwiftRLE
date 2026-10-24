@@ -2,7 +2,7 @@
 
 Standalone PackBits and DICOM RLE frame compression library for the **Swift Image Compression Suite**.
 
-**Status: R2 implemented locally for independent audit.** The package provides scalar PackBits bytes and strict DICOM RLE frames with direct strided 8/16-bit mono, unsigned palette/RGB/YBR_FULL processing, canonical meaningful-bit handling and an explicit raw allocated-cell route. R1 was accepted and merged through PR #1. R2 publication/CI/acceptance is pending; CLI/cross-codec work (R3), long fuzz/sanitizer/performance gates (R4) and final platform qualification (R5) remain deferred. No release or tag is claimed.
+**Status: R2 accepted and merged; R3 adds CLI and real integration.** The dependency-free core provides scalar PackBits and strict direct-buffer DICOM RLE frames. R3 adds `swiftrle-cli`, a staged binary/manual installer and a separate real SwiftJLS shared-owner package. Per-revision validation and CI status are recorded in audit receipts. R4 security/performance and R5 final platform gates remain open. No release or tag is claimed. See [R3 profile, integration and gates](Documentation/R3_INTEGRATION.md).
 
 See [R2 profile and validation notes](Documentation/R2_FRAME_PROFILE.md) for exact semantics, memory bounds and repeatable host checks.
 

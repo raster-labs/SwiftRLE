@@ -27,7 +27,7 @@ jobs:
       - name: Install independent oracle
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends libtiff-tools dcmtk python3 python3-pip python3-venv
+          apt-get install -y --no-install-recommends libtiff-tools dcmtk python3 python3-pip python3-venv groff-base man-db
           python3 -m venv "$RUNNER_TEMP/oracle-python"
           "$RUNNER_TEMP/oracle-python/bin/pip" install pydicom==2.4.4
           echo "$RUNNER_TEMP/oracle-python/bin" >> "$GITHUB_PATH"
@@ -37,10 +37,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "evidence-path=$RUNNER_TEMP/evidence" >> "$GITHUB_OUTPUT"
+          echo "r3-evidence-path=$RUNNER_TEMP/r3-evidence" >> "$GITHUB_OUTPUT"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           engine=native
           if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
           python3 Scripts/validate-r1.py --build-system "$engine" --output "$RUNNER_TEMP/evidence"
+          python3 Scripts/validate-r3.py --build-system "$engine" --output "$RUNNER_TEMP/r3-evidence"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -49,6 +51,11 @@ jobs:
             ${{ steps.validate-linux.outputs.evidence-path }}/*.log
             ${{ steps.validate-linux.outputs.evidence-path }}/receipt.json
             ${{ steps.validate-linux.outputs.evidence-path }}/*-oracle/oracle.json
+            ${{ steps.validate-linux.outputs.r3-evidence-path }}/*.json
+            ${{ steps.validate-linux.outputs.r3-evidence-path }}/*/*.json
+            ${{ steps.validate-linux.outputs.r3-evidence-path }}/*.log
+            ${{ steps.validate-linux.outputs.r3-evidence-path }}/allocator-audit/allocator.log
+            ${{ steps.validate-linux.outputs.r3-evidence-path }}/allocator-audit/instrumentation.patch
           if-no-files-found: error
   macos:
     name: macOS arm64 Swift ${{ matrix.swift }}
@@ -95,6 +102,7 @@ jobs:
           engine=native
           if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
           python3 Scripts/validate-r1.py --build-system "$engine" --output "$RUNNER_TEMP/evidence"
+          python3 Scripts/validate-r3.py --build-system "$engine" --output "$RUNNER_TEMP/r3-evidence"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -103,6 +111,11 @@ jobs:
             ${{ runner.temp }}/evidence/*.log
             ${{ runner.temp }}/evidence/receipt.json
             ${{ runner.temp }}/evidence/*-oracle/oracle.json
+            ${{ runner.temp }}/r3-evidence/*.json
+            ${{ runner.temp }}/r3-evidence/*/*.json
+            ${{ runner.temp }}/r3-evidence/*.log
+            ${{ runner.temp }}/r3-evidence/allocator-audit/allocator.log
+            ${{ runner.temp }}/r3-evidence/allocator-audit/instrumentation.patch
           if-no-files-found: error
   apple-sdks:
     name: Apple OS 26 SDK builds
