@@ -17,8 +17,8 @@ struct Consumer {
 
         let encoder = try SwiftRLE.Encoder()
         let decoder = try SwiftRLE.Decoder()
-        guard !encoder.capabilities.canEncode, !decoder.capabilities.canDecode, !decoder.capabilities.canInspect else {
-            throw SwiftRLE.CodecError(.internalFailure, "Milestone R1 must not claim DICOM RLE frame capabilities before R2.")
+        guard encoder.capabilities.canEncode, decoder.capabilities.canDecode, decoder.capabilities.canInspect else {
+            throw SwiftRLE.CodecError(.internalFailure, "DICOM RLE frame capabilities are required.")
         }
 
         // 2. Verify both configuration-level and per-call DecodeOptions.codecOptions call shapes compile
@@ -32,7 +32,7 @@ struct Consumer {
         do {
             _ = try configuredDecoder.inspect(Data(repeating: 0, count: 64))
             throw SwiftRLE.CodecError(.internalFailure, "Expected R1 DICOM frame inspect preflight rejection.")
-        } catch let error as SwiftRLE.CodecError where error.category == .unsupportedFeature {
+        } catch let error as SwiftRLE.CodecError where error.category == .malformedInput {
             // Expected in R1
         }
 
@@ -45,7 +45,7 @@ struct Consumer {
                 )
             )
             throw SwiftRLE.CodecError(.internalFailure, "Expected R1 DICOM frame decode preflight rejection.")
-        } catch let error as SwiftRLE.CodecError where error.category == .unsupportedFeature {
+        } catch let error as SwiftRLE.CodecError where error.category == .malformedInput {
             // Expected in R1; reusableDestination must remain writable.
         }
 
@@ -57,6 +57,25 @@ struct Consumer {
               try image.sampleUInt16(x: 2, y: 1) == 5 else {
             throw SwiftRLE.CodecError(.internalFailure, "Owned storage sample preservation failed.")
         }
+
+        let frameBytes = try await encoder.encode(image)
+        let info = try configuredDecoder.inspect(frameBytes.data)
+        let allocating = try await configuredDecoder.decode(frameBytes.data)
+        let outputDescriptor = try SwiftRLE.ImageDescriptor.greyscale16(width: 3, height: 2, meaningfulBits: 12, rowBytes: 12, offset: 2)
+        let output = try SwiftRLE.ImageDestination.allocate(descriptor: outputDescriptor)
+        let outputID = output.storage.allocationID
+        let direct = try await configuredDecoder.decode(frameBytes.data, into: output)
+        guard info.descriptor.meaningfulBits == 12, direct.image.storage.allocationID == outputID,
+              direct.report.pixelAllocationCount == 0, direct.report.copyEvents.isEmpty,
+              allocating.report.pixelAllocationCount == 1 else {
+            throw SwiftRLE.CodecError(.internalFailure, "Frame descriptor or direct allocation evidence failed.")
+        }
+        for y in 0..<2 { for x in 0..<3 {
+            guard try direct.image.sampleUInt16(x: x, y: y) == image.sampleUInt16(x: x, y: y),
+                  try allocating.image.sampleUInt16(x: x, y: y) == image.sampleUInt16(x: x, y: y) else {
+                throw SwiftRLE.CodecError(.internalFailure, "Frame sample identity failed.")
+            }
+        } }
 
         // 3. Exercise standalone scalar PackBitsEncoder and PackBitsDecoder (byte-stream, row-constrained & incremental)
         let packEncoder = try SwiftRLE.PackBitsEncoder()

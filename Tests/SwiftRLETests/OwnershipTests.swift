@@ -35,7 +35,7 @@ struct OwnershipTests {
             #expect(error.category == .incompatibleImageLayout)
         }
 
-        // 3. Valid RLEFrameDescriptor in R1 fails preflight (.unsupportedFeature) without beginning write
+        // 3. Invalid header with valid descriptor fails preflight (.malformedInput) without beginning write
         let matchingFrameDesc = try RLEFrameDescriptor(imageDescriptor: desc)
         do {
             _ = try await decoder.decode(
@@ -43,9 +43,9 @@ struct OwnershipTests {
                 into: destination,
                 options: DecodeOptions(codecOptions: try CodecOptions(frameDescriptor: matchingFrameDesc))
             )
-            Issue.record("Expected unsupportedFeature in R1")
+            Issue.record("Expected malformedInput for invalid header")
         } catch let error as CodecError {
-            #expect(error.category == .unsupportedFeature)
+            #expect(error.category == .malformedInput)
         }
 
         // Destination must still be writable and sealable with the original allocationID!

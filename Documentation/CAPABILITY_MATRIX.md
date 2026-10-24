@@ -2,7 +2,7 @@
 
 **Date**: 23 October 2026  
 **Milestone**: `R1` (updated from accepted `R0` commit `b778f21cf0619418e739b625e5861d8584d20819`)
-**Current Implementation Status**: **Milestone R1 implements the standalone `SwiftRLE` package, common suite API & owning storage surface (`OwnedImageStorage`, `StorageWriteLease`, `Image`, `ImageDestination`), and the deterministic scalar `PackBitsEncoder`/`PackBitsDecoder` byte engine (verified against known vectors and `libtiff` `4.7.2` on macOS Apple Silicon).** The `Image`-level `Encoder` and `Decoder` report `CodecCapabilities.contractOnly` (`canEncode == false`, `canDecode == false`, `canInspect == false`) in `R1` and explicitly reject deferred `R2` DICOM RLE frame operations. No non-host platforms (`iOS`, `tvOS`, `visionOS`, `watchOS`, native Intel `macOS`, `Linux`) or cross-codec pairs (`R3`–`R5`) are claimed as qualified in `R1`.
+**Current Implementation Status**: R2 scalar image encoding, inspection and decoding are implemented locally for independent audit. Supported layouts and sample semantics are defined in [R2_FRAME_PROFILE.md](R2_FRAME_PROFILE.md). Host evidence includes 27 real DCMTK two-way profiles; no publication, remote CI, non-host runtime, cross-codec, sanitizer/fuzz campaign or performance qualification is inferred. Historical R1 evidence below remains historical.
 
 ---
 

@@ -10,22 +10,66 @@ public struct ImageMetadata: Sendable, Equatable {
         self.entries = entries; self.requiredKeys = requiredKeys
     }
     @discardableResult
-    func validate(limits: ResourceLimits, additionalBytes: Int = 0) throws -> Int {
-        guard requiredKeys.isSubset(of: Set(entries.keys)) else {
+    func validate(limits: ResourceLimits, additionalBytes: Int = 0,
+                  check: () throws -> Void = {}) throws -> Int {
+        try check()
+        guard requiredKeys.count <= entries.count else {
             throw CodecError(.invalidArgument, "Required metadata has no value.")
+        }
+        for (index, key) in requiredKeys.enumerated() {
+            if index % 64 == 0 { try check() }
+            guard entries[key] != nil else { throw CodecError(.invalidArgument, "Required metadata has no value.") }
         }
         var count = additionalBytes
         guard count <= limits.maximumMetadataBytes else {
             throw CodecError(.resourceLimitExceeded, "Metadata limit exceeded.")
         }
-        for (key, value) in entries {
-            count = try checkedAdd(count, checkedAdd(key.utf8.count, value.count))
+        for (index, entry) in entries.enumerated() {
+            if index % 64 == 0 { try check() }
+            let (key, value) = entry
+            // UTF-8 lengths can themselves be large; bound work inside a key,
+            // rather than relying on a whole-string scan before the next check.
+            var keyBytes = 0
+            for _ in key.utf8 {
+                if keyBytes % 1024 == 0 { try check() }
+                keyBytes = try checkedAdd(keyBytes, 1)
+                guard keyBytes <= limits.maximumMetadataBytes else {
+                    throw CodecError(.resourceLimitExceeded, "Metadata key exceeds its byte limit.")
+                }
+            }
+            count = try checkedAdd(count, checkedAdd(keyBytes, value.count))
             guard count <= limits.maximumMetadataBytes else {
                 throw CodecError(.resourceLimitExceeded, "Metadata limit exceeded.")
             }
         }
+        try check()
         return count
     }
+    func equivalent(to other: ImageMetadata, check: () throws -> Void) throws -> Bool {
+        try check()
+        guard entries.count == other.entries.count, requiredKeys.count == other.requiredKeys.count else { return false }
+        for (index, key) in requiredKeys.enumerated() {
+            if index % 64 == 0 { try check() }
+            guard other.requiredKeys.contains(key) else { return false }
+        }
+        for (index, entry) in entries.enumerated() {
+            if index % 64 == 0 { try check() }
+            guard let value = other.entries[entry.key], value.count == entry.value.count else { return false }
+            let equal = try value.withUnsafeBytes { (a: UnsafeRawBufferPointer) in
+                try entry.value.withUnsafeBytes { (b: UnsafeRawBufferPointer) in
+                    for p in 0..<a.count {
+                        if p % 1024 == 0 { try check() }
+                        if a[p] != b[p] { return false }
+                    }
+                    return true
+                }
+            }
+            if !equal { return false }
+        }
+        try check()
+        return true
+    }
+
 }
 
 public struct Image: Sendable {
@@ -37,11 +81,17 @@ public struct Image: Sendable {
     /// External providers are responsible for making that guarantee across adapters.
     public init(descriptor: ImageDescriptor, storage: any ReadOnlyImageStorage,
                 metadata: ImageMetadata = .empty, limits: ResourceLimits = .default) throws {
+        try self.init(descriptor: descriptor, storage: storage, metadata: metadata, limits: limits, validation: {})
+    }
+
+    init(descriptor: ImageDescriptor, storage: any ReadOnlyImageStorage,
+         metadata: ImageMetadata, limits: ResourceLimits, validation: () throws -> Void) throws {
+        try validation()
         guard storage.byteCount >= descriptor.requiredByteCount else {
             throw CodecError(.incompatibleImageLayout, "Storage is shorter than the descriptor capacity.")
         }
         try descriptor.validate(limits: limits)
-        let metadataBytes = try metadata.validate(limits: limits, additionalBytes: descriptor.iccProfile?.count ?? 0)
+        let metadataBytes = try metadata.validate(limits: limits, additionalBytes: descriptor.iccProfile?.count ?? 0, check: validation)
         guard storage.byteCount <= limits.maximumDecodedBytes,
               try checkedAdd(storage.byteCount, metadataBytes) <= limits.maximumMemoryBytes else {
             throw CodecError(.resourceLimitExceeded, "Image exceeds the admission budget.")
@@ -51,6 +101,7 @@ public struct Image: Sendable {
                 throw CodecError(.storageUnavailable, "Provider returned inconsistent capacity.")
             }
         }
+        try validation()
         self.descriptor = descriptor; self.storage = storage; self.metadata = metadata
     }
 
@@ -125,7 +176,17 @@ public final class ImageDestination: Sendable {
     /// The pointer must not escape or be used by asynchronous/concurrent work.
     /// Ordinary callers should prefer `writeUInt16`, which validates sample values.
     /// The caller controls cancellation/work bounds inside this synchronous closure.
-    public func write(_ body: (UnsafeMutableRawBufferPointer) throws -> Void) throws -> Image {
+    public func write(metadata: ImageMetadata = .empty, _ body: (UnsafeMutableRawBufferPointer) throws -> Void) throws -> Image {
+        try writeValidated(metadata: metadata, validate: { try Task.checkCancellation() }, admissionCheck: {}, body)
+    }
+
+    func writeValidated(metadata: ImageMetadata, validate: () throws -> Void, admissionCheck: () throws -> Void,
+                        _ body: (UnsafeMutableRawBufferPointer) throws -> Void) throws -> Image {
+        let metadataBytes = try metadata.validate(limits: limits, additionalBytes: descriptor.iccProfile?.count ?? 0, check: admissionCheck)
+        try admissionCheck()
+        guard try checkedAdd(storage.byteCount, metadataBytes) <= limits.maximumMemoryBytes else {
+            throw CodecError(.resourceLimitExceeded, "Destination metadata exceeds its retained admission budget.")
+        }
         let accepted = started.withLock { value in
             guard !value else { return false }
             value = true
@@ -133,19 +194,19 @@ public final class ImageDestination: Sendable {
         }
         guard accepted else { throw CodecError(.storageUnavailable, "Destination was already used.") }
         do {
-            try Task.checkCancellation()
+            try validate()
             try storage.withUnsafeMutableBytes(lease: lease) { bytes in
                 guard bytes.count == storage.byteCount, bytes.count >= descriptor.requiredByteCount else {
                     throw CodecError(.storageUnavailable, "Provider returned inconsistent capacity.")
                 }
                 try body(bytes)
             }
-            try Task.checkCancellation()
+            try validate()
             let sealed = try storage.finishAndSeal(lease: lease)
-            let image = try Image(descriptor: descriptor, storage: sealed, limits: limits)
+            let image = try Image(descriptor: descriptor, storage: sealed, metadata: metadata, limits: limits, validation: validate)
             // External providers may perform bounded finalisation or validation
             // work. Cancellation during either callback must prevent publication.
-            try Task.checkCancellation()
+            try validate()
             return image
         } catch {
             try? storage.abortAndInvalidate(lease: lease)

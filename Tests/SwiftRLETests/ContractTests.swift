@@ -188,15 +188,15 @@ struct ContractTests {
         }
     }
 
-    @Test("R1 capabilities and explicit deferred DICOM RLE frame rejection")
+    @Test("R2 capabilities and strict DICOM RLE frame validation")
     func testR1CapabilitiesAndDeferredFrameRejection() async throws {
         let encoder = try Encoder()
         let decoder = try Decoder()
-        #expect(Encoder.capabilities == .contractOnly)
-        #expect(Decoder.capabilities == .contractOnly)
-        #expect(!encoder.capabilities.canEncode)
-        #expect(!decoder.capabilities.canDecode)
-        #expect(!decoder.capabilities.canInspect)
+        #expect(Encoder.capabilities.canEncode)
+        #expect(Decoder.capabilities.canDecode)
+        #expect(encoder.capabilities.canEncode)
+        #expect(decoder.capabilities.canDecode)
+        #expect(decoder.capabilities.canInspect)
 
         let packEncoder = try PackBitsEncoder()
         let packDecoder = try PackBitsDecoder()
@@ -223,25 +223,12 @@ struct ContractTests {
         let frameDesc = try RLEFrameDescriptor(imageDescriptor: desc)
         let decOpts = DecodeOptions(codecOptions: try CodecOptions(frameDescriptor: frameDesc))
 
-        do {
-            _ = try await encoder.encode(image)
-            Issue.record("Expected unsupportedFeature for R1 DICOM frame encode")
-        } catch let error as CodecError {
-            #expect(error.category == .unsupportedFeature)
-        }
+        let encoded = try await encoder.encode(image)
+        let info = try decoder.inspect(encoded.data, options: decOpts)
+        #expect(info.descriptor == desc)
+        let decoded = try await decoder.decode(encoded.data, options: decOpts)
+        #expect(try decoded.image.sampleUInt16(x: 1, y: 1) == 3)
+        #expect(throws: CodecError.self) { _ = try decoder.inspect(Data(repeating: 0, count: 64), options: decOpts) }
 
-        do {
-            _ = try decoder.inspect(Data(repeating: 0, count: 64), options: decOpts)
-            Issue.record("Expected unsupportedFeature for R1 DICOM frame inspect")
-        } catch let error as CodecError {
-            #expect(error.category == .unsupportedFeature)
-        }
-
-        do {
-            _ = try await decoder.decode(Data(repeating: 0, count: 64), options: decOpts)
-            Issue.record("Expected unsupportedFeature for R1 DICOM frame decode")
-        } catch let error as CodecError {
-            #expect(error.category == .unsupportedFeature)
-        }
     }
 }

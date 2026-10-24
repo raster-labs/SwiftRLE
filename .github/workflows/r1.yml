@@ -27,11 +27,16 @@ jobs:
       - name: Install independent oracle
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends libtiff-tools python3
+          apt-get install -y --no-install-recommends libtiff-tools dcmtk python3 python3-pip python3-venv
+          python3 -m venv "$RUNNER_TEMP/oracle-python"
+          "$RUNNER_TEMP/oracle-python/bin/pip" install pydicom==2.4.4
+          echo "$RUNNER_TEMP/oracle-python/bin" >> "$GITHUB_PATH"
       - name: Validate exact head
+        id: validate-linux
         shell: bash
         run: |
           set -euo pipefail
+          echo "evidence-path=$RUNNER_TEMP/evidence" >> "$GITHUB_OUTPUT"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           engine=native
           if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
@@ -41,8 +46,9 @@ jobs:
         with:
           name: linux-${{ matrix.runner }}-${{ matrix.swift }}
           path: |
-            ${{ runner.temp }}/evidence/*.log
-            ${{ runner.temp }}/evidence/receipt.json
+            ${{ steps.validate-linux.outputs.evidence-path }}/*.log
+            ${{ steps.validate-linux.outputs.evidence-path }}/receipt.json
+            ${{ steps.validate-linux.outputs.evidence-path }}/*-oracle/oracle.json
           if-no-files-found: error
   macos:
     name: macOS arm64 Swift ${{ matrix.swift }}
@@ -71,6 +77,10 @@ jobs:
       - name: Install independent oracle and record environment
         run: |
           brew list --versions libtiff || brew install libtiff
+          brew list --versions dcmtk || brew install dcmtk
+          python3 -m venv "$RUNNER_TEMP/oracle-python"
+          "$RUNNER_TEMP/oracle-python/bin/pip" install pydicom==2.4.4
+          echo "$RUNNER_TEMP/oracle-python/bin" >> "$GITHUB_PATH"
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
           sw_vers
@@ -92,6 +102,7 @@ jobs:
           path: |
             ${{ runner.temp }}/evidence/*.log
             ${{ runner.temp }}/evidence/receipt.json
+            ${{ runner.temp }}/evidence/*-oracle/oracle.json
           if-no-files-found: error
   apple-sdks:
     name: Apple OS 26 SDK builds
