@@ -119,7 +119,7 @@ public enum DICOMRLEFrame {
         let bytesPerSample = descriptor.storageBits / 8
         let pixels = try checkedMultiply(descriptor.width, descriptor.height)
         let budget = try checkedAdd(64, checkedMultiply(pixels, multiplier))
-        try data.withUnsafeBytes { bytes in
+        try data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
             for (segment, range) in header.segmentRanges.enumerated() {
                 let component = segment / bytesPerSample, lane = segment % bytesPerSample
                 let order = SharedPathMutation.active == .wrongByteOrder ? descriptor.byteOrder.opposite : descriptor.byteOrder

@@ -41,9 +41,21 @@ def run(name, command, tests=False):
         item['test_summary_verified'] = bool(counts) and item['tests_passed'] >= 38
     receipt['checks'].append(item)
     save()
-    print(name, result.returncode, result.stdout[-2000:], flush=True)
-    if result.returncode or (tests and not item['test_summary_verified']):
+    failed = result.returncode or (tests and not item['test_summary_verified'])
+    if failed:
+        # Compiler diagnostics can precede a long frontend command, so a tail
+        # alone can omit the actual reason for failure. Preserve the full log
+        # and print bounded diagnostic context from its original position.
+        lines = result.stdout.splitlines()
+        diagnostic_lines = [i for i, line in enumerate(lines)
+                            if re.search(r'error:|fatal error:|Traceback|AssertionError', line)]
+        selected = set()
+        for index in diagnostic_lines[:20]:
+            selected.update(range(max(0, index - 3), min(len(lines), index + 8)))
+        context = '\n'.join(lines[i] for i in sorted(selected)) if selected else result.stdout[-8000:]
+        print(name, result.returncode, 'full log:', out / (name + '.log'), context, flush=True)
         raise SystemExit(result.returncode or 1)
+    print(name, result.returncode, result.stdout[-2000:], flush=True)
     return result.stdout
 
 run('swift-version', ['swift', '--version'])
