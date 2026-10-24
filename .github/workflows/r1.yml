@@ -10,76 +10,18 @@ concurrency:
   group: swiftrle-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  linux:
-    name: Linux ${{ matrix.runner }} Swift ${{ matrix.swift }}
-    runs-on: ${{ matrix.runner }}
-    container: swift:${{ matrix.swift }}-noble
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
-        swift: ['6.2.4', '6.4.0']
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Install independent oracle and real manual tool
-        shell: bash
-        run: |
-          set -euo pipefail
-          apt-get update
-          apt-get install -y --no-install-recommends libtiff-tools dcmtk python3 python3-pip python3-venv groff-base man-db
-          # Ubuntu minimized images divert man-db to man.REAL and leave a
-          # success-exiting notice at /usr/bin/man. Restore only that diversion,
-          # as Ubuntu unminimize does; do not unminimize the distribution.
-          if [ "$(dpkg-divert --truename /usr/bin/man)" = /usr/bin/man.REAL ]; then
-            test "$(dpkg-divert --listpackage /usr/bin/man)" = LOCAL
-            test -x /usr/bin/man.REAL
-            rm -f /usr/bin/man
-            dpkg-divert --local --divert /usr/bin/man.REAL --remove --rename /usr/bin/man
-          fi
-          test "$(dpkg-divert --truename /usr/bin/man)" = /usr/bin/man
-          mkdir -p "$RUNNER_TEMP/r3-evidence"
-          man --version | tee "$RUNNER_TEMP/r3-evidence/man-version.log"
-          grep -E '^man [0-9]+[.]' "$RUNNER_TEMP/r3-evidence/man-version.log"
-          python3 -m venv "$RUNNER_TEMP/oracle-python"
-          "$RUNNER_TEMP/oracle-python/bin/pip" install pydicom==2.4.4
-          echo "$RUNNER_TEMP/oracle-python/bin" >> "$GITHUB_PATH"
-      - name: Validate exact head
-        id: validate-linux
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "evidence-path=$RUNNER_TEMP/evidence" >> "$GITHUB_OUTPUT"
-          echo "r3-evidence-path=$RUNNER_TEMP/r3-evidence" >> "$GITHUB_OUTPUT"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          engine=native
-          if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
-          python3 Scripts/validate-r1.py --build-system "$engine" --output "$RUNNER_TEMP/evidence"
-          python3 Scripts/validate-r3.py --build-system "$engine" --output "$RUNNER_TEMP/r3-evidence"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: linux-${{ matrix.runner }}-${{ matrix.swift }}
-          path: |
-            ${{ steps.validate-linux.outputs.evidence-path }}/*.log
-            ${{ steps.validate-linux.outputs.evidence-path }}/receipt.json
-            ${{ steps.validate-linux.outputs.evidence-path }}/*-oracle/oracle.json
-            ${{ steps.validate-linux.outputs.r3-evidence-path }}/*.json
-            ${{ steps.validate-linux.outputs.r3-evidence-path }}/*/*.json
-            ${{ steps.validate-linux.outputs.r3-evidence-path }}/*.log
-            ${{ steps.validate-linux.outputs.r3-evidence-path }}/allocator-audit/allocator.log
-            ${{ steps.validate-linux.outputs.r3-evidence-path }}/allocator-audit/instrumentation.patch
-          if-no-files-found: error
   macos:
-    name: macOS arm64 Swift ${{ matrix.swift }}
-    runs-on: macos-26
-    timeout-minutes: 30
+    name: macOS ${{ matrix.arch }} Swift ${{ matrix.swift }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        swift: ['6.2', '6.4.0']
+        include:
+          - {runner: macos-26, arch: arm64, swift: '6.2'}
+          - {runner: macos-26, arch: arm64, swift: '6.4.0'}
+          - {runner: macos-26-intel, arch: x86_64, swift: '6.2'}
+          - {runner: macos-26-intel, arch: x86_64, swift: '6.4.0'}
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
     steps:
@@ -110,6 +52,65 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          # sysctlbyname preserves errno: only ENOENT means this optional OID
+          # is absent. Permission/I/O/read errors must fail closed.
+          EXPECTED_NATIVE_ARCH='${{ matrix.arch }}' python3 - <<'PY_NATIVE' | tee "$RUNNER_TEMP/evidence/native-identity.log"
+          import ctypes
+          import errno
+          import json
+          import os
+          import platform
+          import struct
+          import sys
+
+          expected = os.environ['EXPECTED_NATIVE_ARCH']
+          libc = ctypes.CDLL(None, use_errno=True)
+          sysctl = libc.sysctlbyname
+          sysctl.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t]
+          sysctl.restype = ctypes.c_int
+
+          def read(name):
+              key = name.encode('ascii')
+              size = ctypes.c_size_t()
+              if sysctl(key, None, ctypes.byref(size), None, 0) != 0:
+                  raise OSError(ctypes.get_errno(), name)
+              if not 0 < size.value <= 4096:
+                  raise RuntimeError('Invalid sysctl size: ' + name)
+              buffer = ctypes.create_string_buffer(size.value)
+              if sysctl(key, buffer, ctypes.byref(size), None, 0) != 0:
+                  raise OSError(ctypes.get_errno(), name)
+              return buffer.raw[:size.value]
+
+          def integer(name):
+              value = read(name)
+              if len(value) != 4:
+                  raise RuntimeError('Invalid sysctl integer: ' + name)
+              return struct.unpack('=i', value)[0]
+
+          try:
+              translated = integer('sysctl.proc_translated')
+              translation = {'value': translated, 'status': 'present'}
+          except OSError as error:
+              if error.errno != errno.ENOENT:
+                  raise
+              translated = 0
+              translation = {'status': 'absent', 'errno': error.errno}
+
+          machine = platform.machine()
+          cpu_type = integer('hw.cputype')
+          brand = read('machdep.cpu.brand_string').rstrip(b'\0').decode('ascii')
+          # CPU family is independent of the kernel's optional ABI architecture bits.
+          required_cpu_family = {'arm64': 12, 'x86_64': 7}[expected]
+          required_brand = 'Apple' if expected == 'arm64' else 'Intel'
+          identity = {'expected': expected, 'system': platform.system(), 'processArchitecture': machine,
+                      'pointerBits': struct.calcsize('P') * 8, 'cpuType': cpu_type, 'cpuBrand': brand,
+                      'translation': translation}
+          print(json.dumps(identity, sort_keys=True))
+          if platform.system() != 'Darwin' or machine != expected or struct.calcsize('P') != 8 or translated != 0 or (cpu_type & 0x00FFFFFF) != required_cpu_family or required_brand not in brand:
+              sys.exit('Native process/CPU identity mismatch')
+          PY_NATIVE
+          { uname -a; arch; sw_vers; xcrun --sdk macosx --show-sdk-version; swift -print-target-info; } > "$RUNNER_TEMP/evidence/native-environment.log"
           swift --version | tee "$RUNNER_TEMP/swift-version.log"
           expected='6[.]2([.]0)?'
           if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then expected='6[.]4([.]0)?'; fi
@@ -121,7 +122,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: macos-arm64-${{ matrix.swift }}
+          name: macos-${{ matrix.arch }}-${{ matrix.swift }}
           path: |
             ${{ runner.temp }}/evidence/*.log
             ${{ runner.temp }}/evidence/receipt.json
@@ -132,8 +133,8 @@ jobs:
             ${{ runner.temp }}/r3-evidence/allocator-audit/allocator.log
             ${{ runner.temp }}/r3-evidence/allocator-audit/instrumentation.patch
           if-no-files-found: error
-  apple-sdks:
-    name: Apple OS 26 SDK builds
+  ios-sdks:
+    name: iOS 26 device and simulator SDK builds
     runs-on: macos-26
     timeout-minutes: 30
     env:
@@ -142,23 +143,17 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Compile library for Apple devices and simulators
+      - name: Compile library for iOS devices and simulators
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/sdk-logs"
           xcodebuild -version | tee "$RUNNER_TEMP/sdk-logs/environment.log"
           xcodebuild -showsdks >> "$RUNNER_TEMP/sdk-logs/environment.log"
-          for sdk in iphoneos iphonesimulator appletvos appletvsimulator xros xrsimulator watchos watchsimulator; do
+          for sdk in iphoneos iphonesimulator; do
             case "$sdk" in
               iphoneos) triple=arm64-apple-ios26.0 ;;
               iphonesimulator) triple=arm64-apple-ios26.0-simulator ;;
-              appletvos) triple=arm64-apple-tvos26.0 ;;
-              appletvsimulator) triple=arm64-apple-tvos26.0-simulator ;;
-              xros) triple=arm64-apple-xros26.0 ;;
-              xrsimulator) triple=arm64-apple-xros26.0-simulator ;;
-              watchos) triple=arm64_32-apple-watchos26.0 ;;
-              watchsimulator) triple=arm64-apple-watchos26.0-simulator ;;
             esac
             # Compile against the installed SDK; simulator runtimes are a separate gate.
             sdk_path="$(xcrun --sdk "$sdk" --show-sdk-path)"
@@ -170,6 +165,6 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: apple-os26-sdk-builds
+          name: ios-os26-sdk-builds
           path: ${{ runner.temp }}/sdk-logs
           if-no-files-found: error

@@ -75,8 +75,14 @@ private func assertSamples(_ image:SwiftRLE.Image,_ bits:Int)throws { for y in 0
     let(source,_) = try rleFixture(bits:12)
     do { _ = try await Transcoder.run(source,direction:.rleToJLS,width:7,height:3,bits:12,rowBytes:10);Issue.record("invalid stride accepted") } catch {}
     do { _ = try await Transcoder.run(source,direction:.rleToJLS,width:7,height:3,bits:12,rowBytes:20,budget:100);Issue.record("aggregate limit accepted") } catch {}
-    let task = Task { try Task.checkCancellation(); return try await Transcoder.run(source,direction:.rleToJLS,width:7,height:3,bits:12,rowBytes:20) };task.cancel()
-    do { _ = try await task.value;Issue.record("cancel accepted") } catch {}
+    // Cancel inside the operation's task, before entering the real transcoder.
+    // Caller-side cancel() races with completion of this tiny fixture.
+    let task = Task {
+        withUnsafeCurrentTask { $0?.cancel() }
+        #expect(Task.isCancelled)
+        return try await Transcoder.run(source,direction:.rleToJLS,width:7,height:3,bits:12,rowBytes:20)
+    }
+    await #expect(throws: CancellationError.self) { _ = try await task.value }
 }
 
 @Test func candidatePreservesExternalMonochromeAndCallerOwner() throws {
@@ -137,8 +143,14 @@ private func assertSamples(_ image:SwiftRLE.Image,_ bits:Int)throws { for y in 0
     #expect(fallback.report.fallbackReason != nil)
     let low=try SwiftJLS.ResourceLimits(maximumMemoryBytes:32)
     do { _=try await SwiftJLS.Encoder().encode(image,options:.init(resourceLimits:low));Issue.record("peer limits accepted") } catch {}
-    let task=Task { try Task.checkCancellation();return try await SwiftJLS.Encoder().encode(image) };task.cancel()
-    do { _=try await task.value;Issue.record("peer cancellation accepted") } catch {}
+    // Establish cancellation before the actual peer encode without throwing in
+    // the test first; the peer operation must itself return CancellationError.
+    let task=Task {
+        withUnsafeCurrentTask { $0?.cancel() }
+        #expect(Task.isCancelled)
+        return try await SwiftJLS.Encoder().encode(image)
+    }
+    await #expect(throws: CancellationError.self) { _ = try await task.value }
 }
 
 @Test func realStrideEndianMutationControls() async throws {
@@ -208,7 +220,7 @@ private final class CancelAfterBorrow: SwiftJLS.WritableImageStorage, Sendable {
     let jls=try await Transcoder.run(source,direction:.rleToJLS,width:7,height:3,bits:16,rowBytes:20)
     let owner=try SharedOwner(byteCount:60),provider=CancelAfterBorrow(owner),descriptor=try SwiftJLS.ImageDescriptor.greyscale16(width:7,height:3,rowBytes:20)
     let task=Task { try await SwiftJLS.Decoder().decode(jls.data,into:SwiftJLS.ImageDestination(descriptor:descriptor,storage:provider)) }
-    do { _=try await task.value;Issue.record("Cancelled write published") } catch {}
+    await #expect(throws: CancellationError.self) { _ = try await task.value }
     #expect(owner.observed.writes == 1)
     #expect(throws:(any Error).self) { try RLEView(owner).reserveWrite() }
     #expect(throws:(any Error).self) { try JLSView(owner).withUnsafeBytes { _ in } }

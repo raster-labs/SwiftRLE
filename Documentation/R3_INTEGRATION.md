@@ -1,6 +1,6 @@
 # R3 CLI and integration profile
 
-R3 implements the CLI and bounded integration profile below. Per-revision local validation, independent acceptance and CI status are recorded in the external completion and audit receipts; this document does not claim a release. R2 was accepted and merged through PR #2 at `aa29491f823d0cafdb1d52dc6eb7a22d0e2b92f5`, accepted head `9da84eaf`, exact-head run `40069324499` (all seven jobs). R3 leaves the seven common contracts unchanged and the main package's dependency list empty.
+R3 is independently accepted and merged through PR #3 at `a72aa30f84129c2add8b84008675061203f8bbc0`; it implements the CLI and bounded integration profile below. Per-revision local validation, independent acceptance and CI status are recorded in the external completion and audit receipts; this document does not claim a release. R2 was accepted and merged through PR #2 at `aa29491f823d0cafdb1d52dc6eb7a22d0e2b92f5`, accepted head `9da84eaf`, exact-head run `40069324499` (all seven jobs). R3 leaves the seven common contracts unchanged and the main package's dependency list empty.
 
 ## Command line
 
