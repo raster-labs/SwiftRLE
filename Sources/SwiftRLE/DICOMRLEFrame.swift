@@ -66,7 +66,7 @@ public enum DICOMRLEFrame {
             var normalized = false
             try owner.withUnsafeMutableBytes(lease: lease) { out in
                 try scatter(data, header: header, descriptor: descriptor.imageDescriptor, out: out,
-                            multiplier: options.codecOptions?.maximumPacketOperationsPerOutputByte ?? 2, canonical: false, normalized: &normalized, gate: gate)
+                            multiplier: options.codecOptions?.maximumPacketOperationsPerOutputByte ?? 2, canonical: false, normalized: &normalized, gate: gate, policy: options.executionPolicy)
             }
             try gate.check()
             let sealed = try owner.finishAndSeal(lease: lease)
@@ -102,6 +102,43 @@ public enum DICOMRLEFrame {
         return header
     }
 
+    /// Addressing is resolved only after descriptor validation. It owns no pixels,
+    /// scratch planes or pointers. Byte-lane stores remain serial and byte-wide.
+    private struct ComponentAddressing: Sendable {
+        let offset: Int
+        let rowBytes: Int
+        let pixelStride: Int
+        // Unused fields on the reference branch avoid resolving a second address
+        // map. No pointer or image storage is created here.
+        static let reference = Self(offset: 0, rowBytes: 0, pixelStride: 0)
+        private init(offset: Int, rowBytes: Int, pixelStride: Int) {
+            self.offset = offset; self.rowBytes = rowBytes; self.pixelStride = pixelStride
+        }
+        init(_ descriptor: ImageDescriptor, component: Int) throws {
+            for plane in descriptor.planes {
+                if let index = plane.components.firstIndex(of: component) {
+                    offset = plane.offset + index * plane.sampleStride
+                    rowBytes = SharedPathMutation.active == .ignoreRowStride
+                        ? descriptor.width * plane.pixelStride : plane.rowBytes
+                    pixelStride = plane.pixelStride
+                    return
+                }
+            }
+            throw CodecError(.internalFailure, "Validated component has no plane.")
+        }
+    }
+
+    /// Explicit scalar policy retains the accepted reference address lookup.
+    /// Automatic/preferred policies only hoist invariant scalar addressing;
+    /// they do not advertise an accelerated backend or relax backend validation.
+    private static func usesReferenceAddressing(_ policy: ExecutionPolicy, descriptor: ImageDescriptor) -> Bool {
+        // A one-pixel image cannot amortise address-hoisting setup.
+        if descriptor.width == 1 && descriptor.height == 1 { return true }
+        if case .scalarCPU = policy { return true }
+        if case .required(.scalarCPU) = policy { return true }
+        return false
+    }
+
     static func location(_ descriptor: ImageDescriptor, component: Int, x: Int, y: Int) -> Int {
         // Validated descriptors prove all arithmetic and disjoint extents.
         for plane in descriptor.planes {
@@ -114,7 +151,7 @@ public enum DICOMRLEFrame {
     }
 
     static func scatter(_ data: Data, header: DICOMRLEHeader, descriptor: ImageDescriptor,
-                        out: UnsafeMutableRawBufferPointer, multiplier: Int, canonical: Bool, normalized: inout Bool, gate: FrameGate) throws {
+                        out: UnsafeMutableRawBufferPointer, multiplier: Int, canonical: Bool, normalized: inout Bool, gate: FrameGate, policy: ExecutionPolicy = .automatic) throws {
         guard out.count >= descriptor.requiredByteCount else { throw CodecError(.storageUnavailable, "Short destination borrow.") }
         let bytesPerSample = descriptor.storageBits / 8
         let pixels = try checkedMultiply(descriptor.width, descriptor.height)
@@ -124,6 +161,8 @@ public enum DICOMRLEFrame {
                 let component = segment / bytesPerSample, lane = segment % bytesPerSample
                 let order = SharedPathMutation.active == .wrongByteOrder ? descriptor.byteOrder.opposite : descriptor.byteOrder
                 let byteLane = order == .bigEndian ? lane : bytesPerSample - 1 - lane
+                let reference = usesReferenceAddressing(policy, descriptor: descriptor)
+                let addressing = try reference ? ComponentAddressing.reference : ComponentAddressing(descriptor, component: component)
                 var cursor = range.lowerBound, produced = 0, operations = 0
                 while produced < pixels {
                     try gate.check()
@@ -139,7 +178,9 @@ public enum DICOMRLEFrame {
                     guard payload <= range.upperBound - cursor else { throw CodecError(.malformedInput, "Truncated packet payload.") }
                     for n in 0..<count {
                         let pixel = produced + n
-                        let target = location(descriptor, component: component, x: pixel % descriptor.width, y: pixel / descriptor.width) + byteLane
+                        let target = (reference
+                            ? location(descriptor, component: component, x: pixel % descriptor.width, y: pixel / descriptor.width)
+                            : addressing.offset + (pixel / descriptor.width) * addressing.rowBytes + (pixel % descriptor.width) * addressing.pixelStride) + byteLane
                         out[target] = bytes[cursor + (control >= 0 ? n : 0)]
                         if canonical, lane == bytesPerSample - 1, descriptor.meaningfulBits < descriptor.storageBits {
                             let p = target - byteLane
@@ -214,9 +255,12 @@ public enum DICOMRLEFrame {
                 try setWord(out.count, segment+1)
                 let start = out.count
                 let component = segment / frame.bytesPerSample, lane = segment % frame.bytesPerSample
+                let reference = usesReferenceAddressing(options.executionPolicy, descriptor: image.descriptor)
+                let addressing = try reference ? ComponentAddressing.reference : ComponentAddressing(image.descriptor, component: component)
                 for y in 0..<frame.height {
                     func sample(_ x: Int) throws -> UInt16 {
-                        let p = location(image.descriptor, component: component, x: x, y: y)
+                        let p = reference ? location(image.descriptor, component: component, x: x, y: y)
+                            : addressing.offset + y * addressing.rowBytes + x * addressing.pixelStride
                         let order = SharedPathMutation.active == .wrongByteOrder ? image.descriptor.byteOrder.opposite : image.descriptor.byteOrder
                         let value = frame.storageBits == 8 ? UInt16(bytes[p]) : try loadUInt16(bytes, at: p, order: order)
                         let mask = (UInt32(1) << frame.meaningfulBits) - 1
