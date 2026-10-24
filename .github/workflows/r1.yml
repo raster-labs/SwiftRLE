@@ -32,9 +32,11 @@ jobs:
           "$RUNNER_TEMP/oracle-python/bin/pip" install pydicom==2.4.4
           echo "$RUNNER_TEMP/oracle-python/bin" >> "$GITHUB_PATH"
       - name: Validate exact head
+        id: validate-linux
         shell: bash
         run: |
           set -euo pipefail
+          echo "evidence-path=$RUNNER_TEMP/evidence" >> "$GITHUB_OUTPUT"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           engine=native
           if [[ '${{ matrix.swift }}' == '6.4.0' ]]; then engine=swiftbuild; fi
@@ -44,9 +46,9 @@ jobs:
         with:
           name: linux-${{ matrix.runner }}-${{ matrix.swift }}
           path: |
-            ${{ runner.temp }}/evidence/*.log
-            ${{ runner.temp }}/evidence/receipt.json
-            ${{ runner.temp }}/evidence/*-oracle/oracle.json
+            ${{ steps.validate-linux.outputs.evidence-path }}/*.log
+            ${{ steps.validate-linux.outputs.evidence-path }}/receipt.json
+            ${{ steps.validate-linux.outputs.evidence-path }}/*-oracle/oracle.json
           if-no-files-found: error
   macos:
     name: macOS arm64 Swift ${{ matrix.swift }}
