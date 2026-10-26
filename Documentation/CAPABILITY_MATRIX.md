@@ -1,6 +1,6 @@
 # Capability, profile and platform inventory — SwiftRLE
 
-Updated 26 October 2026. R0–R4 are independently accepted and merged. R5 qualification work is complete for the owner-approved available native macOS and iPhone/iPad iOS 26 simulator scope. Exact macOS 26.0 and physical iPhone/iPad tests remain UNEXECUTED, explicitly WAIVED_BY_OWNER as R5 gates under DEC-11; final independent acceptance/CI review/PR #5 merge are tracked separately; see [R5 qualification](R5_QUALIFICATION.md). No release is claimed.
+Updated 26 October 2026. R0–R5 are independently accepted and merged; R5 PR #5 merged at `942dfb9135321bd8b3339fbbdf2388012d72c4b8` after all five required jobs in run `40273685051` and merge-tree verification. Version 1.0.0 is the first stable source-release line; publication status is tracked by GitHub. Exact macOS 26.0 and physical iPhone/iPad tests remain UNEXECUTED and WAIVED_BY_OWNER as R5 gates under DEC-11. Available native macOS/iPhone+iPad iOS 26 simulator evidence defines qualified scope; other-platform evidence is supplemental. See [R5 qualification](R5_QUALIFICATION.md) and [release notes](RELEASE_1_0_0.md).
 
 | Surface | Supported profile | Evidence/status |
 |---|---|---|

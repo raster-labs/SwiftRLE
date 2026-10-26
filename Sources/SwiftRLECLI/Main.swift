@@ -9,9 +9,9 @@ import Glibc
 #endif
 
 @main struct Main {
-    static let version = "0.1.0-dev.1"
+    static let version = "1.0.0"
     static let help = """
-    swiftrle-cli 0.1.0-dev.1 — PackBits and DICOM RLE frame codec
+    swiftrle-cli 1.0.0 — PackBits and DICOM RLE frame codec
     Usage: swiftrle-cli <encode|decode|inspect|validate|capabilities> [options]
     Help: -h, --help, help [command]; version: --version, version; no arguments: help.
     encode: raw -> packbits; raw/nrrd -> dicom-rle-frame.
@@ -48,7 +48,7 @@ import Glibc
     static func helpFor(_ command:String) -> String {
         guard ["encode","decode","inspect","validate","capabilities","version"].contains(command) else { return help }
         let common = "\nHelp: -h/--help; verbosity -v through -vvvvv, --verbose LEVEL, --verbose=LEVEL, -verbose: LEVEL or -verbose:LEVEL (levels1..5 or plus strings); bare --verbose/-verbose increments. --quiet/-q conflicts with verbosity. --json selects structured output. Diagnostics use stderr, exclude paths/private metadata/payload/addresses. Exits:0 success,2 arguments,3 malformed,4 unsupported,5 limit/deadline,6 I/O,7 internal,130 cancellation."
-        if command == "version" { return "swiftrle-cli version: prints development version. --quiet/-q preserves requested output. -h/--help shows help." }
+        if command == "version" { return "swiftrle-cli version: prints release version. --quiet/-q preserves requested output. -h/--help shows help." }
         if command == "capabilities" { return "swiftrle-cli capabilities [--json]: reports actual scalar PackBits and DICOM RLE availability and qualified NRRD interchange." + common }
         let input = "\n-i/--input PATH --input-format FORMAT; '-' means stdin. --backend automatic|scalar|scalar-cpu|preferred-accelerated|required-accelerated; --copy-policy require-sharing|allow-copy; --threads N (>0,default2); --max-memory BYTES (>0,default1073741824); --timeout SECONDS (>0,<=120,default120)."
         let frame = "\nDICOM external interpretation/layout: --width N --height N --storage-bits 8|16 --meaningful-bits N --sample-type unsigned|signed --components 1|3 --colour greyscale|rgb|palette|ybr-full --byte-order little|big --planar-configuration 0|1; optional --row-bytes N. These are external semantics, never header discoveries."

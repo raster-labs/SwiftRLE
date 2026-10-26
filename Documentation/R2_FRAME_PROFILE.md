@@ -1,6 +1,6 @@
 # R2 strict DICOM frame profile
 
-Implemented locally for independent audit, based on accepted R1 main `60af084d25522fafebb71abfeb37f4635dc2af3b`. Publication, exact-head CI and independent acceptance remain separate gates.
+R2 was independently accepted and merged through PR #2 at `aa29491f823d0cafdb1d52dc6eb7a22d0e2b92f5`, based on accepted R1 main `60af084d25522fafebb71abfeb37f4635dc2af3b`. R0–R5 are now accepted; current qualification limits are in [R5 qualification](R5_QUALIFICATION.md), with post-R5 source-release scope in [1.0.0 release notes](RELEASE_1_0_0.md).
 
 The normative format reference is DICOM PS3.5 2026d: [8.2.2](https://dicom.nema.org/medical/dicom/2026d/output/chtml/part05/sect_8.2.2.html), [Annex G](https://dicom.nema.org/medical/dicom/2026d/output/chtml/part05/chapter_G.html), especially G.2 byte lanes, G.3 segments and G.5 header. The frame API does not parse DICOM datasets, fragment headers or patient metadata.
 
@@ -36,4 +36,4 @@ The suite combines independent literal/header/sample fixtures, every-prefix trun
 
 The DCMTK oracle covers 27 synthetic profiles in both directions. Pydicom independently constructs and extracts DICOM containers; DCMTK `dcmdump` validates required image tags. Extracted reference frames are reembedded and decoded before Swift tests consume them, comparing every native cell. Swift-produced frames are embedded/read back and decoded by real `dcmdrle`, comparing samples, precision, signedness and photometric interpretation. The deterministic fixture generator is `Scripts/dicom-oracle.py`; fixtures are synthetic CC0 and receipts include SHA-256 hashes and exact external commands.
 
-R2 and subsequent R3/R4 host CI, oracle, shared-owner and security/performance gates are independently accepted and merged. See R4_QUALIFICATION.md for repaired-source evidence and R5_QUALIFICATION.md for current runtime execution and all remaining platform/device gates. SDK builds do not qualify runtime/device behavior; no stable release is claimed.
+R2 and subsequent R3/R4 host CI, oracle, shared-owner and security/performance gates are independently accepted and merged. See R4_QUALIFICATION.md for repaired-source evidence and R5_QUALIFICATION.md for accepted runtime execution and retained owner-waived unexecuted checks. SDK builds do not qualify runtime/device behavior. Stable source-release publication is separately governed by DEC-12.

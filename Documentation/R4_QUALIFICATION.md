@@ -32,7 +32,7 @@ Final repaired-source identity binds the 41-test core debug/release, CLI, consum
 
 ## Limits
 
-Per-case confirmed latency/RSS increases above 5% and unchanged-setting encoded-size increases above 1% require investigation. Raw triggers and targeted repeat evidence are retained for independent acceptance; this document grants no waiver. SIMD and frame concurrency remain unshipped until their separate correctness/security/platform costs justify adoption. Native Intel macOS, exact minimum OS and unavailable Apple device/simulator runtimes remain explicit R5 gates. No DICOMKit production cutover, tag or release is authorized here.
+Per-case confirmed latency/RSS increases above 5% and unchanged-setting encoded-size increases above 1% require investigation. Raw triggers and targeted repeat evidence are retained for independent acceptance; this document grants no waiver. SIMD and frame concurrency remain unshipped until their separate correctness/security/platform costs justify adoption. R5 was subsequently independently accepted and merged at `942dfb9`, including native Mac/toolchain CI in final five-job run `40273685051` and available iPhone/iPad iOS 26 simulator evidence. Exact macOS 26.0 and physical iPhone/iPad tests remain UNEXECUTED and owner-waived as R5 gates under DEC-11; other-platform evidence is supplemental. DEC-12 separately authorizes the 1.0.0 source release. DICOMKit production cutover remains deferred during its separate review.
 
 ## Final repaired-source measurements
 

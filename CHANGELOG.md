@@ -1,10 +1,18 @@
 # Change log
 
-## Unreleased — R5 owner-approved scope qualification, 2026-10-26
+## 1.0.0 — first stable source-release line
+
+- R0–R5 independently accepted; R5 merged PR #5 at `942dfb9135321bd8b3339fbbdf2388012d72c4b8` after all five final-head CI jobs in run `40273685051`, artifact audit and merge-tree verification.
+- Set package/CLI/manual release metadata to 1.0.0; codec algorithms/API, manifests/platforms, tests/drivers/CI and licences are unchanged from accepted R5. See [1.0.0 release notes](Documentation/RELEASE_1_0_0.md) for source scope and publication tracking.
+- Qualified scope remains available native macOS and iPhone/iPad iOS 26 simulators. Exact macOS 26.0 and physical iPhone/iPad tests are UNEXECUTED, WAIVED_BY_OWNER as R5 gates (DEC-11); other-platform evidence is supplemental.
+- DICOMKit D0–D4 remains deferred while its separate review continues. No DICOMKit adoption or clinical-conformance claim is made.
+
+
+## R5 accepted qualification checkpoint, 2026-10-26
 
 - Reconciled documentation, supported profile/backend/resource claims and inherited licence/source/fixture provenance with accepted R0–R4 evidence.
 - Added a bounded standalone runtime fixture and exact-input/platform runner for installed simulators, plus native macOS Intel CI alongside both supported toolchains.
-- Clean revision consumer and isolated real CLI/manual installation/update qualification are recorded in [R5 qualification](Documentation/R5_QUALIFICATION.md). Qualification work is complete for available native macOS and iPhone/iPad iOS 26 simulators. DEC-11 records the owner waiver of exact macOS 26.0 and physical iPhone/iPad tests as R5 gates; those checks remain UNEXECUTED. Final independent acceptance/exact-final-head CI review/PR #5 merge are tracked separately; no stable tag/release or downstream cutover is claimed.
+- Clean revision consumer and isolated real CLI/manual installation/update qualification are recorded in [R5 qualification](Documentation/R5_QUALIFICATION.md). Qualification work is complete for available native macOS and iPhone/iPad iOS 26 simulators. DEC-11 records the owner waiver of exact macOS 26.0 and physical iPhone/iPad tests as R5 gates; those checks remain UNEXECUTED. R5 was subsequently independently accepted and merged at `942dfb9` after final CI run `40273685051`; no stable tag/release or downstream cutover is claimed.
 
 ## Unreleased — R4 accepted optimization and security qualification, 2026-10-24
 
@@ -16,7 +24,7 @@
 
 - Added dependency-free `swiftrle-cli`, strict attached raw UInt16 NRRD interchange, bounded cancellable/deadline-aware I/O, atomic final-output publication, manual and PREFIX/DESTDIR installer.
 - Added separately packaged pinned SwiftJLS real shared-owner transcodes, external DICOMKit candidate adapter, process/pipe/oracle/allocator/mutation gates and six-host CI extensions.
-- R2 was accepted and merged through PR #2; R3 was accepted and merged through PR #3 at `a72aa30f`; R4 was subsequently accepted. Current R5 qualification/waiver status is recorded above; final independent acceptance/merge and downstream cutover are separate. See [R3 integration](Documentation/R3_INTEGRATION.md).
+- R2 was accepted and merged through PR #2; R3 was accepted and merged through PR #3 at `a72aa30f`; R4 was subsequently accepted. Current R5 qualification/waiver status is recorded above; R5 acceptance/merge is recorded above; downstream cutover remains separately deferred. See [R3 integration](Documentation/R3_INTEGRATION.md).
 
 ## Unreleased — Milestone R1 standalone package, owning API and scalar PackBits, 2026-10-23
 
