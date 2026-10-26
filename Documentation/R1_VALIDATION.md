@@ -1,6 +1,6 @@
 # R1 validation and bounded public surface
 
-R1 provides raw PackBits byte operations and the common owning image/storage API. Image-level DICOM frame operations reject as unsupported until R2. No CLI, DICOMKit integration, release or broad platform qualification is implied.
+Historical R1 surface: R1 provided raw PackBits byte operations and the common owning image/storage API. Image-level DICOM frame operations were unsupported until R2. Subsequent R2–R5 were independently accepted and merged; current scope is recorded in [R5 qualification](R5_QUALIFICATION.md) and [1.0.0 release notes](RELEASE_1_0_0.md). No DICOMKit cutover or broad device qualification is implied.
 
 ## Independent audit and executed host evidence
 
@@ -14,13 +14,13 @@ Two-way libtiff 4.7.2 interoperability runs as part of the host test suite. The 
 
 Run `python3 Scripts/validate-r1.py --build-system swiftbuild --output /absolute/scratch/directory` with Swift 6.4 and libtiff installed. The script verifies seven pinned contract hashes, records source hashes and environment, checks dependency independence, runs debug/release tests and the consumer, and rejects a missing/zero test summary. Output includes JSON receipts and logs. Swift 6.2 compatibility uses the explicitly selected `native` build engine; this is a separate matrix entry, not a fallback from failed Swift Build qualification.
 
-The milestone workflow checks out the exact PR head and requires:
+At the historical R1 checkpoint, the milestone workflow checked out the exact PR head and required:
 
 - Native Ubuntu 24.04 x86_64 and aarch64 correctness, each with official Swift 6.2.4 and 6.4.0 containers.
 - Native macOS arm64 correctness with Xcode's Swift 6.2 and the official Swift 6.4.0 toolchain.
 - OS 26 SDK library builds for iOS, tvOS, visionOS and watchOS, including simulators. These are compile checks, not runtime/device results.
 
-All seven jobs must actually execute and pass before Codex merges. Workflow presence is not passing CI. CI is pending the first PR at this local checkpoint; its receipts report the toolchain/oracle versions actually used. Runner and toolchain choices follow the [GitHub runner inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md), [official Swift Linux downloads](https://www.swift.org/install/linux/ubuntu/24_04/) and [official macOS toolchains](https://www.swift.org/install/macos/).
+R1 was subsequently independently accepted and merged. The historical seven-job requirement and pre-PR status are retained as checkpoint context, not current pending CI. The accepted R5 workflow uses four native Mac/toolchain jobs and one iOS device/simulator SDK job; all five passed in run `40273685051` before R5 merge `942dfb9`. Workflow presence alone is not passing CI; receipts identify actual toolchain/oracle versions. Runner and toolchain choices follow the [GitHub runner inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md), [official Swift Linux downloads](https://www.swift.org/install/linux/ubuntu/24_04/) and [official macOS toolchains](https://www.swift.org/install/macos/).
 
 ## Resource and reporting semantics
 
@@ -28,6 +28,6 @@ Raw byte APIs return their final `Data` separately from `OperationReport`. `data
 
 Incremental sessions conservatively charge cumulative compressed bytes plus the declared final output size, including previously released chunks. Every failed append permanently closes the session and prevents publication. Deadlines must be positive, finite and representable in signed 64-bit nanoseconds. Synchronous byte callbacks run inline on the calling execution context; async image operations use the generic executor. Callbacks must return promptly. A callback that exceeds the deadline prevents successful output publication.
 
-## Remaining qualification
+## Current qualification status
 
-R2–R5 retain their explicit DICOM interoperability, real shared-storage transcode, sanitizer/race, sustained fuzz, controlled performance, clean URL consumer and platform/runtime gates. Native Intel macOS, exact minimum-OS runtime, physical devices and unavailable environments remain unexecuted until actual evidence exists. DICOMKit D0–D4 stay deferred. No tag or release is authorised.
+R0–R5 are independently accepted and merged; R5 merge `942dfb9135321bd8b3339fbbdf2388012d72c4b8` binds final five-job CI run `40273685051`. Exact macOS 26.0 and physical iPhone/iPad tests remain UNEXECUTED and WAIVED_BY_OWNER as R5 gates under DEC-11. Available native macOS and iPhone/iPad iOS 26 simulators define the approved scope; other-platform evidence is supplemental. DEC-12 authorizes the subsequent 1.0.0 source release, while DICOMKit D0–D4 remains deferred during its separate review. Historical R1 counts above are not retroactively attributed to the release or later test suites.

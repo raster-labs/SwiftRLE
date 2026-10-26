@@ -1,7 +1,7 @@
 # Owner decision register and governance record — SwiftRLE
 
 **Date**: 23 October 2026  
-**Milestone**: `R1` (updated from accepted `R0` commit `b778f21cf0619418e739b625e5861d8584d20819`)
+**Current stage**: R0–R5 accepted; post-R5 1.0.0 source-release line (26 October 2026). Earlier decisions remain dated historical records.
 **Status**: Owner-approved decisions recorded; governs `SwiftRLE` milestones `R0`–`R5` and deferred `DICOMKit` milestones `D0`–`D4`.
 
 ---
@@ -26,6 +26,8 @@
 - **Milestone R0 (Accepted & Published)**: Published on `main` at commit [`b778f21cf0619418e739b625e5861d8584d20819`](https://github.com/raster-labs/SwiftRLE/commit/b778f21cf0619418e739b625e5861d8584d20819) (tree `1b32a8597427447ded73fe059ddab6c4c756e207`) and formally accepted by independent audit on 23 October 2026.
 - **Milestone R1 (Accepted and merged)**: PR #1 merged at `60af084d25522fafebb71abfeb37f4635dc2af3b` after independent audit and exact-head CI; R2 begins from that accepted main.
 
+- **Milestone R5 (Accepted and merged)**: PR #5 merged at `942dfb9135321bd8b3339fbbdf2388012d72c4b8` after all five final-head jobs in run `40273685051`, artifact audit and merge-tree verification, within DEC-11 scope.
+
 ## 3. Owner workflow update — 24 October 2026
 
 **DEC-09** supersedes the fresh-chat/Antigravity execution route in DEC-05/DEC-08: R2–R5 use GPT-6.1 Sol implementation agents within the existing goal chat, with one bounded milestone at a time and independent root Codex audit. Branch, audit-before-publication, exact-head CI and merge gates remain required. R1 was accepted and merged through PR #1 at `60af084d25522fafebb71abfeb37f4635dc2af3b`; R2 starts from that base. No tag, release, auto-merge, deletion or downstream integration authority is added.
@@ -46,8 +48,20 @@ This explicit owner scope takes precedence for R5 acceptance without changing an
 
 ## 6. Available-environment qualification and explicit gate waiver — 26 October 2026
 
+Historical authorization checkpoint: R5 was subsequently accepted and merged; its result and separate stable-release authority are recorded in DEC-12.
+
 **DEC-11** records the direct owner instruction: “Use the available macOS and iOS simulator validation. Waive exact macOS 26.0 and physical-device tests as R5 gates, keep them documented as unexecuted, and complete R5 acceptance and merge PR #5.” This supersedes DEC-10's no-waiver clause for R5 acceptance.
 
 The required qualification scope is available native macOS validation and iPhone/iPad iOS 26 simulator validation. Exact macOS 26.0 runtime and physical iPhone/iPad tests remain **UNEXECUTED**, with their R5 acceptance-gate status **WAIVED_BY_OWNER**; they are not passed tests or inferred hardware qualification. Other-platform evidence remains supplemental. Qualification work is complete for this owner-approved scope; final independent audit, all five exact-final-head CI checks and artifact review, PR #5 acceptance/merge and merge-tree verification remain recorded by the independent audit/publication workflow. The implementation agent does not self-accept or claim the PR merged.
 
 The owner authorizes completing acceptance and merging PR #5 only. Pinned contracts, package targets, production code, tests/drivers/CI, version and licences are unchanged by this documentation closure. This grants no DICOMKit edits/cutover, new platform validation, tag/release, auto-merge, direct-main push or branch deletion.
+
+## 7. Stable 1.0.0 source release and continued downstream deferral — 26 October 2026
+
+**DEC-12** records the direct owner instruction: “Proceed Stable release and Documentation cleanup. DICOMKit review is going on so D0 - D4 will be completed later.” R5 was independently accepted and merged through PR #5 at `942dfb9135321bd8b3339fbbdf2388012d72c4b8` after all five required final-head CI jobs in run `40273685051`, artifact audit and merge-tree verification.
+
+This is the separate explicit release authority anticipated by DEC-07. Prepare version `1.0.0` on `release/1.0.0`, with only version/help/manual metadata and post-merge documentation/release notes. The independent root auditor/publisher owns local audit, one release PR, all five exact-final-head CI checks/artifact review, merge/tree verification, an annotated immutable `v1.0.0` tag on the verified merge, a fresh tagged semantic-version consumer and the stable source GitHub release. Actual tag/release identities and publication state are recorded by GitHub and the publication audit; this decision is authorization, not a claim publication already occurred. The implementation agent must not commit, push, open/merge PRs, tag or publish releases.
+
+The release contains the Swift package and CLI/manual sources; it makes no prebuilt executable distribution claim. Available native macOS and iPhone/iPad iOS 26 simulator evidence is the approved qualification scope. Exact macOS 26.0 and physical iPhone/iPad tests remain UNEXECUTED and WAIVED_BY_OWNER as R5 gates under DEC-11; supplemental platforms are not promoted to fully qualified support. No codec/core/API, manifest/platform, CI, common-contract, test/driver or licence change is authorized.
+
+DICOMKit review is ongoing. D0–D4 remains deferred for a later separate assignment; do not inspect, build or edit DICOMKit during this release task. No downstream adoption, clinical-conformance claim, new platform validation, direct-main push, auto-merge, branch deletion or tag rewriting is authorized.
