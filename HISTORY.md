@@ -38,3 +38,11 @@ See [Documentation/BASELINE_AUDIT.md](Documentation/BASELINE_AUDIT.md) for the c
 ## R1 common surface provenance
 
 The common owning API is adapted from Apache-2.0 in-house reference code in `raster-labs/SwiftJ2K` at `be4e7a3ad352759e7a78a90f6a2e2c3b7aa0f748`. Each destination below retains the corresponding `Sources/SwiftJ2K/` filename: `Sources/SwiftRLE/Errors.swift`, `ImageDescriptor.swift`, `ImageStorage.swift`, `Image.swift`, `Options.swift`, `Telemetry.swift` and the common portions of `CodecAPI.swift`. RLE-specific configurations, PackBits operations and audit regressions are added in SwiftRLE. DICOMKit-derived kernel and test paths retain their separate per-file MIT provenance comments and full notices.
+
+## R5 provenance reconciliation — 24 October 2026
+
+R0–R4 are accepted and merged; R5 starts from `d43bc2aaec0c511c6e583dea42dcb57298d8a000`. The extraction and common API pins above remain unchanged. R5 adds no codec algorithm source or external runtime dependency. `Qualification/Runtime/main.swift` is independently authored synthetic qualification code using coordinate/component-derived samples and explicit PackBits/DICOM packet vectors, dedicated to CC0; the harness and qualification runners carry Apache-2.0 SPDX headers. Existing DICOMKit-derived source/test comments and both full inherited MIT notices remain preserved. See [R5 qualification](Documentation/R5_QUALIFICATION.md) for source/product binding and platform gaps.
+
+## R5 available-environment qualification and owner waiver — 26 October 2026
+
+DEC-11 records the owner's direct instruction to use available native macOS and iPhone/iPad iOS 26 simulator validation and complete R5 acceptance/PR #5 merge. Qualification work is complete for that approved scope. Exact macOS 26.0 runtime and physical iPhone/iPad tests remain UNEXECUTED; the owner explicitly waived them as R5 acceptance gates. Existing other-platform evidence remains supplemental. The documentation closure changes no production code, tests/drivers/CI, manifest/version, pinned contracts or licences and performs no new validation runs. Final independent acceptance, exact-final-head CI/artifact review and merge-tree verification are tracked in the PR/audit workflow; this record does not claim the PR merged or authorize a tag/release or DICOMKit cutover.

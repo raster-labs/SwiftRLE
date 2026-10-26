@@ -29,3 +29,25 @@
 ## 3. Owner workflow update — 24 October 2026
 
 **DEC-09** supersedes the fresh-chat/Antigravity execution route in DEC-05/DEC-08: R2–R5 use GPT-6.1 Sol implementation agents within the existing goal chat, with one bounded milestone at a time and independent root Codex audit. Branch, audit-before-publication, exact-head CI and merge gates remain required. R1 was accepted and merged through PR #1 at `60af084d25522fafebb71abfeb37f4635dc2af3b`; R2 starts from that base. No tag, release, auto-merge, deletion or downstream integration authority is added.
+
+## 4. R5 qualification status — 24 October 2026
+
+Historical checkpoint: current validation scope and waiver authority are recorded in DEC-10 and DEC-11 below.
+
+R2, R3 and R4 were independently accepted and merged in sequence; R4 main is `d43bc2aaec0c511c6e583dea42dcb57298d8a000`. R5 starts on `milestone/r5` from that merge. R5 may publish independently audited local contents for native Intel and other attainable remote CI checks, while mandatory unavailable target/device gates remain open. Final R5 acceptance/merge still requires all mandatory gates; no hardware waiver, stable version/tag/release, downstream cutover or change to the seven pinned contracts is implied. See [R5 qualification](R5_QUALIFICATION.md).
+
+## 5. Owner validation scope — 24 October 2026
+
+Historical decision: the no-waiver clause below is superseded by DEC-11 on 26 October 2026.
+
+**DEC-10**: The owner instructed, “limit the validation to macOS and iOS”. Required R5 validation is therefore macOS (native arm64 and Intel x86_64, Swift 6.2 and 6.4) and iOS/iPadOS. Required CI comprises four native macOS/toolchain entries retaining core, CLI, independent oracle and peer integration coverage, plus one iOS 26.0 device/simulator SDK-build job. Previously executed Linux/watchOS/tvOS/visionOS evidence is retained as supplemental; missing validation on those platforms does not block R5 under this current owner scope.
+
+This explicit owner scope takes precedence for R5 acceptance without changing any pinned contract bytes or package manifest targets, removing codec features, or asserting qualification of unexecuted environments. The owner did not waive exact macOS 26.0 runtime or representative physical iPhone/iPad gates; these remain unexecuted unless actual evidence or a separate explicit waiver is recorded. No new validation outside macOS/iOS is required. DICOMKit remains strictly read-only throughout R5; no DICOMKit production code or cutover is included.
+
+## 6. Available-environment qualification and explicit gate waiver — 26 October 2026
+
+**DEC-11** records the direct owner instruction: “Use the available macOS and iOS simulator validation. Waive exact macOS 26.0 and physical-device tests as R5 gates, keep them documented as unexecuted, and complete R5 acceptance and merge PR #5.” This supersedes DEC-10's no-waiver clause for R5 acceptance.
+
+The required qualification scope is available native macOS validation and iPhone/iPad iOS 26 simulator validation. Exact macOS 26.0 runtime and physical iPhone/iPad tests remain **UNEXECUTED**, with their R5 acceptance-gate status **WAIVED_BY_OWNER**; they are not passed tests or inferred hardware qualification. Other-platform evidence remains supplemental. Qualification work is complete for this owner-approved scope; final independent audit, all five exact-final-head CI checks and artifact review, PR #5 acceptance/merge and merge-tree verification remain recorded by the independent audit/publication workflow. The implementation agent does not self-accept or claim the PR merged.
+
+The owner authorizes completing acceptance and merging PR #5 only. Pinned contracts, package targets, production code, tests/drivers/CI, version and licences are unchanged by this documentation closure. This grants no DICOMKit edits/cutover, new platform validation, tag/release, auto-merge, direct-main push or branch deletion.
