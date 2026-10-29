@@ -21,7 +21,23 @@ let package = Package(
     ],
     dependencies: [],
     targets: [
-        .executableTarget(name: "SwiftRLECLI", dependencies: ["SwiftRLE"]),
+        .executableTarget(
+            name: "SwiftRLECLI",
+            dependencies: ["SwiftRLECLICore"],
+            path: "Sources/SwiftRLECLI/Entry",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "SwiftRLECLICore",
+            dependencies: ["SwiftRLE"],
+            path: "Sources/SwiftRLECLI",
+            exclude: ["Entry"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .target(
             name: "SwiftRLE",
             swiftSettings: [
@@ -31,6 +47,13 @@ let package = Package(
         .testTarget(
             name: "SwiftRLETests",
             dependencies: ["SwiftRLE"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "SwiftRLECLITests",
+            dependencies: ["SwiftRLECLICore", "SwiftRLE"],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

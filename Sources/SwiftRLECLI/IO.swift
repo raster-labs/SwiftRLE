@@ -8,14 +8,47 @@ import Darwin
 import Glibc
 #endif
 
-let receivedSignal = Atomic<Int32>(0)
+package let receivedSignal = Atomic<Int32>(0)
 
-final class Control: Sendable {
-    let cancelled = Atomic<Bool>(false)
-    let started = ContinuousClock.now
-    let deadline: ContinuousClock.Instant
-    init(seconds: Double) { deadline = started.advanced(by:.seconds(seconds)) }
-    func check() throws { if receivedSignal.load(ordering:.relaxed) != 0 || cancelled.load(ordering:.relaxed) { throw CLIError(130) }; if ContinuousClock.now >= deadline { throw CLIError(5) } }
+package final class Control: Sendable {
+    package let cancelled = Atomic<Bool>(false)
+    package let started: ContinuousClock.Instant
+    package let deadline: ContinuousClock.Instant
+    private let nowProvider: @Sendable () -> ContinuousClock.Instant
+    package init(
+        seconds: Double,
+        started: ContinuousClock.Instant = ContinuousClock.now,
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }
+    ) {
+        self.started = started
+        self.deadline = started.advanced(by: .seconds(seconds))
+        self.nowProvider = now
+    }
+    package func now() -> ContinuousClock.Instant { nowProvider() }
+    package func remainingDeadlineSeconds() throws -> Double {
+        if receivedSignal.load(ordering: .relaxed) != 0 || cancelled.load(ordering: .relaxed) || Task.isCancelled {
+            throw CLIError(130)
+        }
+        let sample = nowProvider()
+        guard sample < deadline else { throw CLIError(5) }
+        let remaining = sample.duration(to: deadline).components
+        let seconds = Double(remaining.seconds) + Double(remaining.attoseconds) / 1e18
+        guard seconds.isFinite, seconds > 0 else { throw CLIError(5) }
+        return min(seconds, Double(Int64.max / 1_000_000_000))
+    }
+    package func check() throws { _ = try remainingDeadlineSeconds() }
+    package func resourceLimits(memory: Int, threads: Int) throws -> ResourceLimits {
+        let ceiling = (memory - 32_768) / 8
+        let seconds = try remainingDeadlineSeconds()
+        return try ResourceLimits(
+            maximumCompressedBytes: min(ceiling, 256 * 1024 * 1024),
+            maximumDecodedBytes: min(ceiling, 512 * 1024 * 1024),
+            maximumWorkspaceBytes: memory / 4,
+            maximumWorkers: threads,
+            deadlineSeconds: seconds,
+            maximumMemoryBytes: memory / 2
+        )
+    }
 }
 struct StreamIO {
     let control: Control
