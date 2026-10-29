@@ -198,6 +198,11 @@ public struct PackBitsEncoder: Sendable {
         guard clock.now <= deadline else {
             throw CodecError(.resourceLimitExceeded, "PackBits encode operation exceeded deadline.")
         }
+        options.progress?(try ProgressUpdate(phase: .completed, completedUnits: totalUnits, totalUnits: totalUnits))
+        try Task.checkCancellation()
+        guard clock.now <= deadline else {
+            throw CodecError(.resourceLimitExceeded, "PackBits encode operation exceeded deadline.")
+        }
         let elapsed = clock.now - started
         let report = OperationReport(
             backend: .scalarCPU,
@@ -209,7 +214,6 @@ public struct PackBitsEncoder: Sendable {
             peakWorkspaceBytes: 0,
             elapsedSeconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
         )
-        options.progress?(try ProgressUpdate(phase: .completed, completedUnits: totalUnits, totalUnits: totalUnits))
         return EncodedBytes(data: out, report: report)
     }
 

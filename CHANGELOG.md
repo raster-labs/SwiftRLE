@@ -1,5 +1,11 @@
 # Change log
 
+## Unreleased — R0–R4 audit remediation, 2026-10-29
+
+- Enforced post-callback task cancellation (`CancellationError`) and operation deadlines (`.resourceLimitExceeded`) after the terminal `.completed` progress callback in `PackBitsEncoder.encode`, `PackBitsDecoder.IncrementalSession.finish` and `PackBitsDecoder.decodeIncremental`, keeping incremental session closure terminal and releasing retained session output.
+- Routed omitted and explicit `swiftrle-cli --backend automatic` to `ExecutionPolicy.automatic` (preserving `scalar`/`scalar-cpu` reference selection, `preferred-accelerated` fallback and `required-accelerated` exit `4`), and centralized CLI remaining-deadline conversion to sample the monotonic clock once at both initial and refreshed `ResourceLimits` construction with cancellation priority (exit `130`) and nonpositive remaining time classified as deadline exceeded (exit `5`).
+- Added PackBits terminal-callback regressions in `SwiftRLETests`, added `SwiftRLECLITests` covering `Main.run` option consumption and deterministic deadline boundaries (49 repository tests plus 4 independent audit probes = 53 passing tests, 27 two-way DCMTK profiles, libtiff interoperability and 101 CLI checks; no new long mutation/benchmark campaigns or R5 qualification claims), and documented the additive R4 qualification receipt-link reconciliation in [R4 qualification](Documentation/R4_QUALIFICATION.md).
+
 ## 1.0.0 — first stable source-release line
 
 - R0–R5 independently accepted; R5 merged PR #5 at `942dfb9135321bd8b3339fbbdf2388012d72c4b8` after all five final-head CI jobs in run `40273685051`, artifact audit and merge-tree verification.

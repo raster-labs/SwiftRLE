@@ -219,6 +219,7 @@ public struct PackBitsDecoder: Sendable {
                 throw CodecError(.invalidArgument, "Incremental PackBits session has already finished.")
             }
             finished = true
+            defer { output = Data() }
             try Task.checkCancellation()
             if clock.now > deadline {
                 throw CodecError(.resourceLimitExceeded, "PackBits decode operation exceeded deadline.")
@@ -247,6 +248,12 @@ public struct PackBitsDecoder: Sendable {
                 throw CodecError(.resourceLimitExceeded, "PackBits decode operation exceeded deadline.")
             }
 
+            options.progress?(try ProgressUpdate(phase: .completed, completedUnits: totalUnits, totalUnits: totalUnits))
+            try Task.checkCancellation()
+            guard clock.now <= deadline else {
+                throw CodecError(.resourceLimitExceeded, "PackBits decode operation exceeded deadline.")
+            }
+
             let elapsed = clock.now - started
             let report = OperationReport(
                 backend: .scalarCPU,
@@ -258,7 +265,6 @@ public struct PackBitsDecoder: Sendable {
                 peakWorkspaceBytes: 0,
                 elapsedSeconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
             )
-            options.progress?(try ProgressUpdate(phase: .completed, completedUnits: totalUnits, totalUnits: totalUnits))
             return DecodedBytes(data: output, consumedByteCount: consumedBytes, report: report)
         }
 
@@ -432,7 +438,12 @@ public struct PackBitsDecoder: Sendable {
         guard clock.now <= deadline else {
             throw CodecError(.resourceLimitExceeded, "PackBits decode operation exceeded deadline.")
         }
-        return try session.finish()
+        let result = try session.finish()
+        try Task.checkCancellation()
+        guard clock.now <= deadline else {
+            throw CodecError(.resourceLimitExceeded, "PackBits decode operation exceeded deadline.")
+        }
+        return result
     }
 
     private func validateCompressedAdmission(_ count: Int, expectedByteCount: Int, limits: ResourceLimits) throws {

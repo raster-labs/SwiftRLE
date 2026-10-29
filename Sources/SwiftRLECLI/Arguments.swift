@@ -49,6 +49,15 @@ struct Arguments {
         if values[key] == nil, let fallback { return fallback }
         guard let s = values[key], let n = Int(s), zero ? n >= 0 : n > 0 else { throw CLIError(2) }; return n
     }
+    func executionPolicy() throws -> ExecutionPolicy {
+        switch values["backend"] {
+        case nil, "automatic": return .automatic
+        case "scalar", "scalar-cpu": return .scalarCPU
+        case "preferred-accelerated": return .preferred(.accelerated)
+        case "required-accelerated": throw CLIError(4)
+        default: throw CLIError(2)
+        }
+    }
     func validate() throws {
         if let topic = values["topic"], !["encode","decode","inspect","validate","capabilities","version"].contains(topic) { throw CLIError(2) }
         if flags.contains("help") { return }
@@ -58,8 +67,7 @@ struct Arguments {
         else { guard values["output"] == nil, values["output-format"] == nil, !flags.contains("overwrite") else { throw CLIError(2) } }
         if command != "encode" && values["mode"] != nil { throw CLIError(2) }
         if let mode = values["mode"], mode != "lossless" { throw CLIError(["near-lossless","lossy"].contains(mode) ? 4 : 2) }
-        if let backend = values["backend"], !["automatic","scalar","scalar-cpu","preferred-accelerated","required-accelerated"].contains(backend) { throw CLIError(2) }
-        if values["backend"] == "required-accelerated" { throw CLIError(4) }
+        _ = try executionPolicy()
         if let policy = values["copy-policy"], !["require-sharing","allow-copy"].contains(policy) { throw CLIError(2) }
         _ = try integer("threads", default: 2)
         if let timeout = values["timeout"] { guard let n = Double(timeout), n.isFinite, n > 0, n <= 120 else { throw CLIError(2) } }

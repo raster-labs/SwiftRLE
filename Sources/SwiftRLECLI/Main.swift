@@ -90,14 +90,19 @@ import Glibc
             message("swiftrle-cli: operation failed (exit \(code))"); exit(code)
         }
     }
-    static func run(_ a: Arguments, control: Control) throws {
+    static func run(
+        _ a: Arguments,
+        control: Control,
+        observeEncodeOptions: ((EncodeOptions) -> Void)? = nil,
+        observeDecodeOptions: ((DecodeOptions) -> Void)? = nil
+    ) throws {
         let io = StreamIO(control:control)
         var completed=false
         defer {
             if completed && a.verbosity >= 1 { message("swiftrle-cli: completed") }
             if completed && a.verbosity >= 2 { message("swiftrle-cli: stages complete") }
             if completed && a.verbosity >= 3 { message("swiftrle-cli: bounded scalar configuration") }
-            if completed && a.verbosity >= 4 { let elapsed=control.started.duration(to:ContinuousClock.now).components;message("swiftrle-cli: elapsed seconds \(Double(elapsed.seconds)+Double(elapsed.attoseconds)/1e18)") }
+            if completed && a.verbosity >= 4 { let elapsed=control.started.duration(to:control.now()).components;message("swiftrle-cli: elapsed seconds \(Double(elapsed.seconds)+Double(elapsed.attoseconds)/1e18)") }
             if completed && a.verbosity >= 5 { message("swiftrle-cli: trace: bounded operation and publication complete") }
         }
 
@@ -111,20 +116,22 @@ import Glibc
         guard memory >= 65_536 else { throw CLIError(5) }
         let ceiling = (memory - 32_768) / 8
         let input = try io.readInput(a.values["input"] ?? "-",maximum:min(256*1024*1024,ceiling))
-        try control.check()
-        let remaining = ContinuousClock.now.duration(to:control.deadline).components
-        let seconds = Double(remaining.seconds) + Double(remaining.attoseconds) / 1e18
-        let limits = try ResourceLimits(maximumCompressedBytes:min(ceiling,256*1024*1024),maximumDecodedBytes:min(ceiling,512*1024*1024),maximumWorkspaceBytes:memory/4,maximumWorkers:threads,deadlineSeconds:seconds,maximumMemoryBytes:memory/2)
-        let policy: ExecutionPolicy = a.values["backend"] == "preferred-accelerated" ? .preferred(.accelerated) : .scalarCPU
+        let limits = try control.resourceLimits(memory:memory,threads:threads)
+        let policy = try a.executionPolicy()
         let copy: CopyPolicy = a.values["copy-policy"] == "allow-copy" ? .allowCopy : .requireSharedStorage
         func currentLimits() throws -> ResourceLimits {
-            try control.check()
-            let remaining=ContinuousClock.now.duration(to:control.deadline).components
-            let seconds=Double(remaining.seconds)+Double(remaining.attoseconds)/1e18
-            return try ResourceLimits(maximumCompressedBytes:limits.maximumCompressedBytes,maximumDecodedBytes:limits.maximumDecodedBytes,maximumWorkspaceBytes:limits.maximumWorkspaceBytes,maximumWorkers:threads,deadlineSeconds:seconds,maximumMemoryBytes:limits.maximumMemoryBytes)
+            try control.resourceLimits(memory:memory,threads:threads)
         }
-        func encodeOptions() throws -> EncodeOptions { try EncodeOptions(resourceLimits:currentLimits(),executionPolicy:policy,copyPolicy:copy) }
-        func decodeOptions() throws -> DecodeOptions { try DecodeOptions(resourceLimits:currentLimits(),executionPolicy:policy,copyPolicy:copy) }
+        func encodeOptions() throws -> EncodeOptions {
+            let options = try EncodeOptions(resourceLimits:currentLimits(),executionPolicy:policy,copyPolicy:copy)
+            observeEncodeOptions?(options)
+            return options
+        }
+        func decodeOptions() throws -> DecodeOptions {
+            let options = try DecodeOptions(resourceLimits:currentLimits(),executionPolicy:policy,copyPolicy:copy)
+            observeDecodeOptions?(options)
+            return options
+        }
         let inputFormat = a.values["input-format"] ?? "", outputFormat = a.values["output-format"] ?? ""
 
         if a.verbosity >= 2 { message("swiftrle-cli: input admitted; codec stage") }

@@ -102,4 +102,112 @@ struct AuditRegressionTests {
         }
         await #expect(throws: CancellationError.self) { _ = try await decode.value }
     }
+
+    @Test func terminalCompletedCallbackRechecksCancellation() async throws {
+        let encodeTask = Task {
+            try PackBitsEncoder().encode(Data([42, 42, 7]), options: .init(progress: { update in
+                if update.phase == .completed { withUnsafeCurrentTask { $0?.cancel() } }
+            }))
+        }
+        await #expect(throws: CancellationError.self) { _ = try await encodeTask.value }
+
+        let syncEncodeTask = Task {
+            try PackBitsEncoder().encodeSynchronously(Data([42]), options: .init(progress: { update in
+                if update.phase == .completed { withUnsafeCurrentTask { $0?.cancel() } }
+            }))
+        }
+        await #expect(throws: CancellationError.self) { _ = try await syncEncodeTask.value }
+
+        let decodeTask = Task {
+            try PackBitsDecoder().decode(Data([0, 42]), expectedByteCount: 1, options: .init(progress: { update in
+                if update.phase == .completed { withUnsafeCurrentTask { $0?.cancel() } }
+            }))
+        }
+        await #expect(throws: CancellationError.self) { _ = try await decodeTask.value }
+
+        let incrementalCollectionTask = Task {
+            try PackBitsDecoder().decodeIncremental([Data([0]), Data([42])], expectedByteCount: 1, options: .init(progress: { update in
+                if update.phase == .completed { withUnsafeCurrentTask { $0?.cancel() } }
+            }))
+        }
+        await #expect(throws: CancellationError.self) { _ = try await incrementalCollectionTask.value }
+
+        let sessionTask = Task<PackBitsDecoder.IncrementalSession, any Error> {
+            var session = try PackBitsDecoder().makeIncrementalSession(
+                expectedByteCount: 2,
+                options: .init(progress: { update in
+                    if update.phase == .completed { withUnsafeCurrentTask { $0?.cancel() } }
+                })
+            )
+            try session.append(Data([255, 9]))
+            do {
+                _ = try session.finish()
+                Issue.record("Expected CancellationError from finish() after completed callback cancellation")
+            } catch is CancellationError {
+                // Expected; session failure must remain terminal even while task is cancelled.
+            }
+            rejects(.invalidArgument) { try session.append(Data()) }
+            rejects(.invalidArgument) { _ = try session.finish() }
+            return session
+        }
+        var closedSession = try await sessionTask.value
+        rejects(.invalidArgument) { try closedSession.append(Data([0, 1])) }
+        rejects(.invalidArgument) { _ = try closedSession.finish() }
+    }
+
+    @Test func terminalCompletedCallbackRechecksDeadlineAndKeepsSessionTerminal() throws {
+        let limits = try ResourceLimits(deadlineSeconds: 0.01)
+
+        rejects(.resourceLimitExceeded) {
+            _ = try PackBitsEncoder().encode(Data([42]), options: .init(resourceLimits: limits, progress: { update in
+                if update.phase == .completed { Thread.sleep(forTimeInterval: 0.03) }
+            }))
+        }
+
+        rejects(.resourceLimitExceeded) {
+            _ = try PackBitsDecoder().decode(Data([0, 42]), expectedByteCount: 1, options: .init(resourceLimits: limits, progress: { update in
+                if update.phase == .completed { Thread.sleep(forTimeInterval: 0.03) }
+            }))
+        }
+
+        rejects(.resourceLimitExceeded) {
+            _ = try PackBitsDecoder().decodeIncremental([Data([0]), Data([42])], expectedByteCount: 1, options: .init(resourceLimits: limits, progress: { update in
+                if update.phase == .completed { Thread.sleep(forTimeInterval: 0.03) }
+            }))
+        }
+
+        var session = try PackBitsDecoder().makeIncrementalSession(
+            expectedByteCount: 2,
+            options: .init(resourceLimits: limits, progress: { update in
+                if update.phase == .completed { Thread.sleep(forTimeInterval: 0.03) }
+            })
+        )
+        try session.append(Data([255, 7]))
+        rejects(.resourceLimitExceeded) { _ = try session.finish() }
+        rejects(.invalidArgument) { try session.append(Data()) }
+        rejects(.invalidArgument) { _ = try session.finish() }
+    }
+
+    @Test func callbackFreeAndHealthyCompletedCallbackSuccessUnchanged() throws {
+        let encoder = try PackBitsEncoder(), decoder = try PackBitsDecoder()
+        let raw = Data([1, 1, 1, 2, 3, 4, 4])
+
+        let encodedNoCallback = try encoder.encode(raw)
+        let decodedNoCallback = try decoder.decode(encodedNoCallback.data, expectedByteCount: raw.count)
+        #expect(decodedNoCallback.data == raw)
+
+        var withoutCallbackSession = try decoder.makeIncrementalSession(expectedByteCount: raw.count)
+        try withoutCallbackSession.append(encodedNoCallback.data)
+        #expect(try withoutCallbackSession.finish().data == raw)
+        rejects(.invalidArgument) { _ = try withoutCallbackSession.finish() }
+
+        let encodedWithCallback = try encoder.encode(raw, options: .init(progress: { _ in }))
+        #expect(encodedWithCallback.data == encodedNoCallback.data)
+
+        var withCallbackSession = try decoder.makeIncrementalSession(expectedByteCount: raw.count, options: .init(progress: { _ in }))
+        for byte in encodedWithCallback.data {
+            try withCallbackSession.append(Data([byte]))
+        }
+        #expect(try withCallbackSession.finish().data == raw)
+    }
 }
