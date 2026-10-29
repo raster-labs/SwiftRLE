@@ -8,14 +8,14 @@ import Darwin
 import Glibc
 #endif
 
-let receivedSignal = Atomic<Int32>(0)
+package let receivedSignal = Atomic<Int32>(0)
 
-final class Control: Sendable {
-    let cancelled = Atomic<Bool>(false)
-    let started: ContinuousClock.Instant
-    let deadline: ContinuousClock.Instant
+package final class Control: Sendable {
+    package let cancelled = Atomic<Bool>(false)
+    package let started: ContinuousClock.Instant
+    package let deadline: ContinuousClock.Instant
     private let nowProvider: @Sendable () -> ContinuousClock.Instant
-    init(
+    package init(
         seconds: Double,
         started: ContinuousClock.Instant = ContinuousClock.now,
         now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }
@@ -24,8 +24,8 @@ final class Control: Sendable {
         self.deadline = started.advanced(by: .seconds(seconds))
         self.nowProvider = now
     }
-    func now() -> ContinuousClock.Instant { nowProvider() }
-    func remainingDeadlineSeconds() throws -> Double {
+    package func now() -> ContinuousClock.Instant { nowProvider() }
+    package func remainingDeadlineSeconds() throws -> Double {
         if receivedSignal.load(ordering: .relaxed) != 0 || cancelled.load(ordering: .relaxed) || Task.isCancelled {
             throw CLIError(130)
         }
@@ -36,8 +36,8 @@ final class Control: Sendable {
         guard seconds.isFinite, seconds > 0 else { throw CLIError(5) }
         return min(seconds, Double(Int64.max / 1_000_000_000))
     }
-    func check() throws { _ = try remainingDeadlineSeconds() }
-    func resourceLimits(memory: Int, threads: Int) throws -> ResourceLimits {
+    package func check() throws { _ = try remainingDeadlineSeconds() }
+    package func resourceLimits(memory: Int, threads: Int) throws -> ResourceLimits {
         let ceiling = (memory - 32_768) / 8
         let seconds = try remainingDeadlineSeconds()
         return try ResourceLimits(

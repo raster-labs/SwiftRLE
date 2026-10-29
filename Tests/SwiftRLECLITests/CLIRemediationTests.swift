@@ -2,8 +2,8 @@
 import Foundation
 import Synchronization
 import Testing
-@testable import SwiftRLE
-@testable import SwiftRLECLI
+import SwiftRLE
+import SwiftRLECLICore
 
 @Suite("R3/R4 CLI backend policy and deadline boundary regressions")
 struct CLIRemediationTests {

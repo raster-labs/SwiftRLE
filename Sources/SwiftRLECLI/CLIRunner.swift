@@ -8,7 +8,7 @@ import Darwin
 import Glibc
 #endif
 
-@main struct Main {
+package struct Main {
     static let version = "1.0.0"
     static let help = """
     swiftrle-cli 1.0.0 — PackBits and DICOM RLE frame codec
@@ -57,7 +57,7 @@ import Glibc
         return "swiftrle-cli \(command): explicit packbits or dicom-rle-frame input. Inspect checks frame header against external interpretation; validate decodes complete payload. JSON uses stdout. PackBits requires --decoded-bytes N (>=0), optional --row-bytes N --rows N with matching product." + input + frame + common
     }
     static func message(_ text: String) { let bytes = Data((text + "\n").utf8); try? FileHandle.standardError.write(contentsOf:bytes) }
-    static func main() async {
+    package static func executeProcess() async {
         _ = receivedSignal.load(ordering:.relaxed)
         signal(SIGPIPE,SIG_IGN); signal(SIGINT) { receivedSignal.store($0,ordering:.relaxed) }; signal(SIGTERM) { receivedSignal.store($0,ordering:.relaxed) }
         do {
@@ -90,7 +90,7 @@ import Glibc
             message("swiftrle-cli: operation failed (exit \(code))"); exit(code)
         }
     }
-    static func run(
+    package static func run(
         _ a: Arguments,
         control: Control,
         observeEncodeOptions: ((EncodeOptions) -> Void)? = nil,

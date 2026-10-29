@@ -12,7 +12,7 @@ Two-way libtiff 4.7.2 interoperability runs as part of the host test suite. The 
 
 ## Reproduction and CI gates
 
-Run `python3 Scripts/validate-r1.py --build-system swiftbuild --output /absolute/scratch/directory` with Swift 6.4 and libtiff installed. The script verifies seven pinned contract hashes, records source hashes and environment, checks dependency independence, runs debug/release tests and the consumer, and rejects a missing/zero test summary. Output includes JSON receipts and logs. Swift 6.2 compatibility uses the explicitly selected `native` build engine; this is a separate matrix entry, not a fallback from failed Swift Build qualification.
+Run `python3 Scripts/validate-r1.py --build-system swiftbuild --output /absolute/scratch/directory` with Swift 6.4 and libtiff installed. The script verifies seven pinned contract hashes, records source hashes and environment, checks dependency independence, runs debug/release tests and the consumer, and rejects a missing/zero test summary. Following the 29 October 2026 CLI regression target addition, summary verification requires all expected test groups and full coverage across both single-runner `native` output (`49` tests in `8` suites) and multi-bundle `swiftbuild` output (`44` library tests in `7` suites plus `5` CLI tests in `1` suite, in either bundle order), rejecting missing, zero, incomplete, skipped or failed groups and executing built-in parser self-tests (`--self-test`). Output includes JSON receipts and logs. Swift 6.2 compatibility uses the explicitly selected `native` build engine; this is a separate matrix entry, not a fallback from failed Swift Build qualification.
 
 At the historical R1 checkpoint, the milestone workflow checked out the exact PR head and required:
 

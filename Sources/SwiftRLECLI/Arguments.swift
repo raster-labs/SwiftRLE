@@ -2,12 +2,12 @@
 import Foundation
 import SwiftRLE
 
-struct CLIError: Error { let code: Int32; init(_ code: Int32) { self.code = code } }
-struct Arguments {
-    var command = "help", values: [String:String] = [:], flags: Set<String> = [], verbosity = 0
+package struct CLIError: Error { package let code: Int32; package init(_ code: Int32) { self.code = code } }
+package struct Arguments {
+    package var command = "help", values: [String:String] = [:], flags: Set<String> = [], verbosity = 0
     static let switches: Set<String> = ["overwrite", "json", "quiet", "help"]
     static let valued: Set<String> = ["input", "output", "input-format", "output-format", "mode", "backend", "copy-policy", "threads", "max-memory", "timeout", "width", "height", "storage-bits", "meaningful-bits", "sample-type", "components", "colour", "byte-order", "planar-configuration", "row-bytes", "rows", "decoded-bytes"]
-    init(_ arguments: [String]) throws {
+    package init(_ arguments: [String]) throws {
         var i = 0; var selected = false
         func level(_ s: String) throws -> Int {
             if !s.isEmpty && s.allSatisfy({ $0 == "+" }) && s.count <= 5 { return s.count }
@@ -45,11 +45,11 @@ struct Arguments {
         }
         guard ["help","version","capabilities","encode","decode","inspect","validate"].contains(command), !(flags.contains("quiet") && verbosity > 0) else { throw CLIError(2) }
     }
-    func integer(_ key: String, default fallback: Int? = nil, zero: Bool = false) throws -> Int {
+    package func integer(_ key: String, default fallback: Int? = nil, zero: Bool = false) throws -> Int {
         if values[key] == nil, let fallback { return fallback }
         guard let s = values[key], let n = Int(s), zero ? n >= 0 : n > 0 else { throw CLIError(2) }; return n
     }
-    func executionPolicy() throws -> ExecutionPolicy {
+    package func executionPolicy() throws -> ExecutionPolicy {
         switch values["backend"] {
         case nil, "automatic": return .automatic
         case "scalar", "scalar-cpu": return .scalarCPU
@@ -58,7 +58,7 @@ struct Arguments {
         default: throw CLIError(2)
         }
     }
-    func validate() throws {
+    package func validate() throws {
         if let topic = values["topic"], !["encode","decode","inspect","validate","capabilities","version"].contains(topic) { throw CLIError(2) }
         if flags.contains("help") { return }
         if ["help","version","capabilities"].contains(command) { guard values.keys.allSatisfy({$0 == "topic"}) && flags.isSubset(of: ["help","quiet","json"]) else { throw CLIError(2) }; return }
