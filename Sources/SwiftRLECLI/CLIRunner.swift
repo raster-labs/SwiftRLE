@@ -9,9 +9,9 @@ import Glibc
 #endif
 
 package struct Main {
-    static let version = "1.0.0"
+    static let version = "1.0.1"
     static let help = """
-    swiftrle-cli 1.0.0 — PackBits and DICOM RLE frame codec
+    swiftrle-cli 1.0.1 — PackBits and DICOM RLE frame codec
     Usage: swiftrle-cli <encode|decode|inspect|validate|capabilities> [options]
     Help: -h, --help, help [command]; version: --version, version; no arguments: help.
     encode: raw -> packbits; raw/nrrd -> dicom-rle-frame.
