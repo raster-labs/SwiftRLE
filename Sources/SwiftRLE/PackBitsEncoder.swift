@@ -152,12 +152,10 @@ public struct PackBitsEncoder: Sendable {
         // it together with output, rather than granting each the entire budget.
         let maxCompressed = min(options.resourceLimits.maximumCompressedBytes,
                                 options.resourceLimits.maximumMemoryBytes - inputCount)
-        let initialReserve = min(worstCase, min(maxCompressed, max(16, inputCount / 2 + 16)))
-        var out = Data()
-        if inputCount > 0 {
-            out.reserveCapacity(initialReserve)
-        }
-
+        let capacity = min(worstCase, maxCompressed)
+        var out = Data(count: capacity)
+        var written = 0
+        try out.withUnsafeMutableBytes { destination in
         try data.withUnsafeBytes { rawBuffer in
             guard rawBuffer.count == inputCount else {
                 throw CodecError(.internalFailure, "Inconsistent Data buffer count.")
@@ -178,8 +176,9 @@ public struct PackBitsEncoder: Sendable {
                     base: base,
                     from: rowStart,
                     to: rowEnd,
-                    into: &out,
-                    maxCompressedBytes: maxCompressed,
+                    destination: destination,
+                    written: &written,
+                    maxCompressedBytes: capacity,
                     clock: clock,
                     deadline: deadline
                 )
@@ -193,6 +192,9 @@ public struct PackBitsEncoder: Sendable {
                 }
             }
         }
+
+        }
+        out.removeSubrange(written..<out.count)
 
         try Task.checkCancellation()
         guard clock.now <= deadline else {
@@ -228,60 +230,64 @@ public struct PackBitsEncoder: Sendable {
     }
 
     private static func encodeRow(
-        base: UnsafePointer<UInt8>,
-        from start: Int,
-        to end: Int,
-        into out: inout Data,
-        maxCompressedBytes: Int,
-        clock: ContinuousClock,
+        base: UnsafePointer<UInt8>, from start: Int, to end: Int,
+        destination: UnsafeMutableRawBufferPointer, written: inout Int,
+        maxCompressedBytes: Int, clock: ContinuousClock,
         deadline: ContinuousClock.Instant
     ) throws {
         var i = start
-        var stepsSinceCheck = 0
+        var packets = 0
         while i < end {
-            stepsSinceCheck += 1
-            if stepsSinceCheck >= 64 {
-                stepsSinceCheck = 0
+            packets += 1
+            if packets & 63 == 0 {
                 try Task.checkCancellation()
-                if clock.now > deadline {
+                guard clock.now <= deadline else {
                     throw CodecError(.resourceLimitExceeded, "PackBits encode operation exceeded deadline.")
                 }
             }
-
-            // Measure a replicate run starting at i (capped at 128 and row boundary `end`).
-            var runLength = 1
-            while i + runLength < end && base[i + runLength] == base[i] && runLength < 128 {
-                runLength += 1
-            }
-
-            if runLength >= 2 {
-                let nextSize = try checkedAdd(out.count, 2, category: .resourceLimitExceeded, message: "Encoded PackBits output overflowed.")
-                guard nextSize <= maxCompressedBytes else {
+            var run = 1
+            while run < 128 && run < end - i && base[i + run] == base[i] { run += 1 }
+            // Pairs inside a literal usually cost less when kept in the literal.
+            // An isolated final pair has no following literal header to amortize.
+            if run >= 3 || (run == 2 && (i + 2 == end || (end - i >= 4 && base[i+2] == base[i+3]))) {
+                guard 2 <= maxCompressedBytes - written else {
                     throw CodecError(.resourceLimitExceeded, "Encoded PackBits output exceeds compressed byte limit.")
                 }
-                let control = UInt8(bitPattern: Int8(-(runLength - 1)))
-                out.append(control)
-                out.append(base[i])
-                i += runLength
+                destination[written] = UInt8(257 - run)
+                destination[written + 1] = base[i]
+                written += 2
+                i += run
             } else {
-                // Literal run: copy until a >= 2 identical pair begins, `end`, or 128 bytes.
-                let literalStart = i
-                var literalLength = 0
-                while i < end && literalLength < 128 {
-                    if i + 1 < end && base[i] == base[i + 1] {
-                        break
+                let begin = i
+                i += run
+                let literalEnd = begin + min(128, end - begin)
+                while i < literalEnd {
+                    // Eight adjacent-byte comparisons per scalar word. The first
+                    // marked byte is exact even if subtraction borrows mark later bytes.
+                    // Normalizing endianness makes trailingZeroBitCount follow input order.
+                    if end - i >= 9 && literalEnd - i >= 8 {
+                        let a = UnsafeRawPointer(base.advanced(by: i)).loadUnaligned(as: UInt64.self).littleEndian
+                        let b = UnsafeRawPointer(base.advanced(by: i + 1)).loadUnaligned(as: UInt64.self).littleEndian
+                        let difference = a ^ b
+                        let matches = (difference &- 0x0101010101010101) & ~difference & 0x8080808080808080
+                        if matches == 0 {
+                            i += 8
+                            continue
+                        }
+                        i += matches.trailingZeroBitCount / 8
+                    }
+                    if end - i >= 2 && base[i] == base[i+1] {
+                        if end - i == 2 || (end - i >= 3 && base[i] == base[i+2]) || (end - i >= 4 && base[i+2] == base[i+3]) { break }
                     }
                     i += 1
-                    literalLength += 1
                 }
-                let packetBytes = try checkedAdd(literalLength, 1)
-                let nextSize = try checkedAdd(out.count, packetBytes, category: .resourceLimitExceeded, message: "Encoded PackBits output overflowed.")
-                guard nextSize <= maxCompressedBytes else {
+                let length = i - begin
+                guard length + 1 <= maxCompressedBytes - written else {
                     throw CodecError(.resourceLimitExceeded, "Encoded PackBits output exceeds compressed byte limit.")
                 }
-                let control = UInt8(bitPattern: Int8(literalLength - 1))
-                out.append(control)
-                out.append(UnsafeBufferPointer(start: base.advanced(by: literalStart), count: literalLength))
+                destination[written] = UInt8(length - 1)
+                destination.baseAddress!.advanced(by: written + 1).copyMemory(from: base.advanced(by: begin), byteCount: length)
+                written += length + 1
             }
         }
     }

@@ -81,6 +81,7 @@ public struct PackBitsDecoder: Sendable {
         private let deadline: ContinuousClock.Instant
         private let maxCompressedBytes: Int
         private var output: Data
+        private var producedBytes = 0
         private var pending: PendingPacket = .awaitingControl
         private var consumedBytes = 0
         private var packetOperations = 0
@@ -106,10 +107,7 @@ public struct PackBitsDecoder: Sendable {
             self.maxCompressedBytes = min(options.resourceLimits.maximumCompressedBytes,
                                           options.resourceLimits.maximumMemoryBytes - expectedByteCount)
             try Task.checkCancellation()
-            var out = Data()
-            if expectedByteCount > 0 {
-                out.reserveCapacity(expectedByteCount)
-            }
+            let out = Data(count: expectedByteCount)
             self.output = out
             options.progress?(try ProgressUpdate(phase: .inspecting, completedUnits: 0, totalUnits: max(1, expectedByteCount)))
         }
@@ -147,6 +145,10 @@ public struct PackBitsDecoder: Sendable {
                 throw CodecError(.resourceLimitExceeded, "Compressed PackBits input exceeds resource limits.")
             }
 
+            var buffer = output
+            output = Data()
+            defer { output = buffer }
+            try buffer.withUnsafeMutableBytes { destination in
             try chunk.withUnsafeBytes { rawBuffer in
                 guard rawBuffer.count == chunk.count else {
                     throw CodecError(.internalFailure, "Inconsistent Data chunk buffer count.")
@@ -192,7 +194,10 @@ public struct PackBitsDecoder: Sendable {
                     case .awaitingLiteralBytes(let remaining):
                         let available = count - index
                         let copyCount = min(remaining, available)
-                        output.append(UnsafeBufferPointer(start: base.advanced(by: index), count: copyCount))
+                        if copyCount > 0 {
+                            destination.baseAddress!.advanced(by: producedBytes).copyMemory(from: base.advanced(by: index), byteCount: copyCount)
+                        }
+                        producedBytes += copyCount
                         index += copyCount
                         consumedBytes += copyCount
                         if copyCount == remaining {
@@ -205,10 +210,12 @@ public struct PackBitsDecoder: Sendable {
                         let value = base[index]
                         index += 1
                         consumedBytes += 1
-                        output.append(contentsOf: repeatElement(value, count: repeatCount))
+                        destination.baseAddress!.advanced(by: producedBytes).initializeMemory(as: UInt8.self, repeating: value, count: repeatCount)
+                        producedBytes += repeatCount
                         pending = .awaitingControl
                     }
                 }
+            }
             }
         }
 
@@ -234,10 +241,10 @@ public struct PackBitsDecoder: Sendable {
                 throw CodecError(.malformedInput, "Truncated PackBits repeat packet missing byte value.")
             }
 
-            guard output.count == expectedByteCount else {
+            guard producedBytes == expectedByteCount else {
                 throw CodecError(
                     .malformedInput,
-                    "PackBits stream ended after \(output.count) of \(expectedByteCount) expected bytes."
+                    "PackBits stream ended after \(producedBytes) of \(expectedByteCount) expected bytes."
                 )
             }
 
@@ -270,7 +277,7 @@ public struct PackBitsDecoder: Sendable {
 
         private func validatePacketFit(packetOutputCount: Int) throws {
             let nextOutputCount = try checkedAdd(
-                output.count,
+                producedBytes,
                 packetOutputCount,
                 category: .malformedInput,
                 message: "PackBits decoded output length overflow."
@@ -278,11 +285,11 @@ public struct PackBitsDecoder: Sendable {
             guard nextOutputCount <= expectedByteCount else {
                 throw CodecError(
                     .malformedInput,
-                    "PackBits run of \(packetOutputCount) bytes exceeds expected decoded length \(expectedByteCount) (at offset \(output.count))."
+                    "PackBits run of \(packetOutputCount) bytes exceeds expected decoded length \(expectedByteCount) (at offset \(producedBytes))."
                 )
             }
             if let rb = rowBytes, rb > 0 {
-                let offsetInRow = output.count % rb
+                let offsetInRow = producedBytes % rb
                 let remainingInRow = rb - offsetInRow
                 guard packetOutputCount <= remainingInRow else {
                     throw CodecError(

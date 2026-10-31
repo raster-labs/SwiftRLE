@@ -51,7 +51,8 @@ struct AuditRegressionTests {
     @Test func packetisationNeverExceedsPublishedBound() throws {
         let encoder = try PackBitsEncoder()
         let regression = Data([1, 2, 2, 3, 4, 4])
-        #expect(try encoder.encode(regression).data.count == 8)
+        #expect(try encoder.encode(regression).data.count <= 8)
+        #expect(try PackBitsDecoder().decode(encoder.encode(regression).data, expectedByteCount: regression.count).data == regression)
         #expect(try PackBitsEncoder.worstCaseEncodedByteCount(forByteCount: regression.count) >= 8)
         // Exhaustive short binary inputs catch fragmented literals and two-byte repeats.
         for length in 0...10 {
