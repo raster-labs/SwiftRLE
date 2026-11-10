@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Isolated URL/revision consumer and persistent CLI/manual install/update proof."""
 import argparse, hashlib, json, os, pathlib, re, shutil, subprocess, time
 p=argparse.ArgumentParser();p.add_argument('--output',required=True);p.add_argument('--revision',required=True);p.add_argument('--binary',required=True);p.add_argument('--consumer-evidence');a=p.parse_args()

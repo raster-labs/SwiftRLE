@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Ordinary release shared-owner, actual peer allocator and independent-oracle gate.
 The supplied pinned peer snapshot is read-only; instrumentation lives in output only.
 """

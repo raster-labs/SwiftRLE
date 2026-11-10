@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Incremental isolated ordinary-release comparison. Protected snapshots stay read-only."""
 import argparse,hashlib,json,pathlib,platform,subprocess,time,shutil,datetime,os
 p=argparse.ArgumentParser();p.add_argument('--output',required=True,type=pathlib.Path);p.add_argument('--predecessor-source',required=True,type=pathlib.Path);p.add_argument('--scalar-ref',default='a72aa30f84129c2add8b84008675061203f8bbc0');p.add_argument('--quick',action='store_true');p.add_argument('--memory',action='store_true');p.add_argument('--prepare-only',action='store_true');a=p.parse_args()
@@ -7,7 +7,7 @@ root=pathlib.Path(__file__).resolve().parents[1];out=a.output.resolve();os.envir
 assert shutil.disk_usage(out).free>1024**3,'Insufficient disk headroom'
 assert hashlib.sha256(a.predecessor_source.read_bytes()).hexdigest()=='59f7b00112760ce7b2342546185935dc457f17d6dcc1b4519b43374da18bca43'
 stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ');run=out/('qualified-'+stamp);run.mkdir();(run/'executed-driver.py').write_bytes(pathlib.Path(__file__).read_bytes())
-wrapper='''// SPDX-License-Identifier: Apache-2.0
+wrapper='''// SPDX-License-Identifier: MIT
 // Qualification-only read access to existing internal allocator hooks; no production modification.
 public enum BenchmarkTelemetry {
  public static func measureAsync(_ body: @Sendable () async throws -> Void) async rethrows -> [String:Int] {

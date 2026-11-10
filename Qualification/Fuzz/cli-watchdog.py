@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Independent two-second local CLI child timeout, including pipe EOF handling."""
 import resource,subprocess,sys
 payload=sys.stdin.buffer.read(16385)

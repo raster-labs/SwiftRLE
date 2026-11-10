@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 import argparse,hashlib,json,os,pathlib,signal,struct,subprocess,tempfile,time
 p=argparse.ArgumentParser();p.add_argument('--rle',required=True);p.add_argument('--jls',required=True);p.add_argument('--output',required=True);a=p.parse_args();rle=str(pathlib.Path(a.rle).resolve());jls=str(pathlib.Path(a.jls).resolve());out=pathlib.Path(a.output).resolve();out.mkdir(parents=True,exist_ok=True);checks=[]
 def run(binary,args,data=None):

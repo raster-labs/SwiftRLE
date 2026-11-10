@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Run only against a build explicitly compiled -DSWIFTRLE_CLI_TESTING.
 The fault-injection branch does not exist in ordinary builds.
 """

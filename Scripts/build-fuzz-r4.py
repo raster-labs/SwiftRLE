@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Compile the local synthetic parser qualification harness with shipped sources."""
 import argparse,hashlib,json,pathlib,platform,subprocess,time
 p=argparse.ArgumentParser();p.add_argument('--output',required=True,type=pathlib.Path);p.add_argument('--sanitize',choices=['none','address','thread'],default='none');a=p.parse_args()

@@ -1,16 +1,17 @@
 # Third-party and provenance notices
 
-SwiftRLE is distributed under the Apache License, Version 2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)) per owner decision on 23 October 2026 extending [Documentation/SUITE_POLICY.md](Documentation/SUITE_POLICY.md) (`POL-07`) to SwiftRLE. The shipped library (`SwiftRLE`) will contain zero third-party source code and zero external SwiftPM package dependencies in its core target.
+SwiftRLE is distributed under the MIT License (`Copyright (c) 2026 Raster Images Private Limited`; see [LICENSE](LICENSE) and [NOTICE](NOTICE)) per owner decision `DEC-13` ([Documentation/DECISION_RECORD.md](Documentation/DECISION_RECORD.md)), which supersedes historical `DEC-02` (Apache-2.0). The shipped library (`SwiftRLE`) contains zero third-party source code and zero external SwiftPM package dependencies in its core target.
 
 ## In-house predecessor code and preserved MIT notice
 
 SwiftRLE extracts and adapts RLE (PackBits and DICOM PS3.5 Annex G) codec logic and test cases from [raster-labs/DICOMKit](https://github.com/raster-labs/DICOMKit) pinned at commit [`4b68d7e22829418c88e48dd53d98b25fee50d90d`](https://github.com/raster-labs/DICOMKit/commit/4b68d7e22829418c88e48dd53d98b25fee50d90d) (`v2.9.0`, 23 October 2026).
 
-`DICOMKit` is and remains licensed under the MIT License (`LICENSE` SHA-256: `4c0768004e1c88e30b7c28f3f4ea03998c351c89b81db0d05e333998acf8b9f4`). In accordance with the owner's licensing decision and MIT terms, the full original `DICOMKit` copyright and permission notice is retained verbatim below and in [NOTICE](NOTICE):
+`DICOMKit` is and remains licensed under the MIT License. At the R0 extraction freeze (`4b68d7e22829418c88e48dd53d98b25fee50d90d`), `DICOMKit`'s `LICENSE` (SHA-256: `4c0768004e1c88e30b7c28f3f4ea03998c351c89b81db0d05e333998acf8b9f4`) carried `Copyright (c) 2026 rasterdevapps`; at commit [`88758ba6168e670f16f3c6a08ca2245db39629f2`](https://github.com/raster-labs/DICOMKit/commit/88758ba6168e670f16f3c6a08ca2245db39629f2) (`LICENSE` SHA-256: `9a6740d5798b34f0e390df81825748674ef4f00678a12b35cb23061684103363`), `DICOMKit` updated its copyright holder line to `Copyright (c) 2026 Raster Images Private Limited`. Both `DICOMKit` MIT copyright notices and permission terms are retained verbatim below and in [NOTICE](NOTICE):
 
 ```text
 MIT License
 
+Copyright (c) 2026 Raster Images Private Limited
 Copyright (c) 2026 rasterdevapps
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -34,7 +35,7 @@ SOFTWARE.
 
 ## In-house common contract documentation and reference surface
 
-The seven common contract specifications under `Documentation/` and the common API/storage reference design (`SwiftJ2K` commit [`be4e7a3ad352759e7a78a90f6a2e2c3b7aa0f748`](https://github.com/raster-labs/SwiftJ2K/commit/be4e7a3ad352759e7a78a90f6a2e2c3b7aa0f748), `SwiftJLS` commit [`0791e54a5950bb8082af2218bce3800e03c777b9`](https://github.com/raster-labs/SwiftJLS/commit/0791e54a5950bb8082af2218bce3800e03c777b9)) are in-house works of Raster Images Private Limited licensed under Apache-2.0 (`POL-07`).
+The seven common contract specifications under `Documentation/` and the common API/storage reference design (`SwiftJ2K` commit [`be4e7a3ad352759e7a78a90f6a2e2c3b7aa0f748`](https://github.com/raster-labs/SwiftJ2K/commit/be4e7a3ad352759e7a78a90f6a2e2c3b7aa0f748), `SwiftJLS` commit [`0791e54a5950bb8082af2218bce3800e03c777b9`](https://github.com/raster-labs/SwiftJLS/commit/0791e54a5950bb8082af2218bce3800e03c777b9)) are in-house works of Raster Images Private Limited (`POL-07`), relicensed by the copyright holder for distribution in `SwiftRLE` under the MIT License (`DEC-13`).
 
 ## Development and verification tools (never linked or shipped)
 
@@ -44,7 +45,7 @@ The following external tools are used strictly as out-of-process reference oracl
 | --- | --- | --- |
 | `libtiff` (`tiffcp`, `tiffinfo`) | Independent PackBits strip encode/decode verification (`R1`) | libtiff BSD-like permissive licence |
 | `DCMTK` (`dcmdrle`, `dcmcrle`) | Independent DICOM RLE Lossless (`1.2.840.10008.1.2.5`) frame decode/encode oracle (`R2`) | BSD-3-Clause |
-| `GDCM` (`gdcmconv`, `gdcmraw`) | Secondary independent DICOM RLE frame encode/decode oracle (`R2`) | BSD-3-Clause (Apache-2.0 compatible) |
+| `GDCM` (`gdcmconv`, `gdcmraw`) | Secondary independent DICOM RLE frame encode/decode oracle (`R2`) | BSD-3-Clause (MIT / Apache-2.0 compatible) |
 | Swift toolchains & Xcode SDKs | Compilation, unit/regression testing, sanitizer runs and platform qualification | Apple / Swift.org terms |
 
 ## Test fixtures

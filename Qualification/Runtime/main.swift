@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 // Synthetic coordinate fixtures, independently authored packet vectors; CC0.
 // Executed in the target process, not a host surrogate. No private datasets.
 import Foundation

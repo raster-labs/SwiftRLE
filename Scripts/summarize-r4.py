@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Summarize all raw samples without hiding per-case regressions."""
 import argparse,json,math,pathlib,statistics
 p=argparse.ArgumentParser();p.add_argument('raw',type=pathlib.Path);p.add_argument('output',type=pathlib.Path);p.add_argument('--memory',type=pathlib.Path);a=p.parse_args();rows=[]

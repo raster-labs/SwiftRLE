@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """R1/R2 host correctness gates. Artifacts describe this run, not device qualification."""
 import argparse
 import hashlib
