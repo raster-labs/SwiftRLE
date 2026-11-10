@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """R3 gates supplement (and do not replace) validate-r1.py / the seven CI jobs."""
 import argparse,hashlib,json,os,pathlib,platform,re,subprocess,sys,time
 p=argparse.ArgumentParser();p.add_argument('--output',required=True,type=pathlib.Path);p.add_argument('--build-system',choices=['native','swiftbuild'],required=True);a=p.parse_args();root=pathlib.Path(__file__).resolve().parents[1];out=a.output.resolve();out.mkdir(parents=True,exist_ok=True)

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 // Bounded deterministic mutation engine; deliberately not called coverage-guided.
 // Compile with the shipped library sources and NRRD.swift as module SwiftRLE.
 import Foundation

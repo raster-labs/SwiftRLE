@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Supervise selected bounded local synthetic mutation campaigns, not coverage-guided."""
 import argparse,hashlib,json,os,pathlib,platform,resource,signal,subprocess,time
 p=argparse.ArgumentParser();p.add_argument('--output',required=True,type=pathlib.Path);p.add_argument('--seconds',type=int,default=3600);p.add_argument('--binary',required=True,type=pathlib.Path);p.add_argument('--cli',required=True,type=pathlib.Path);p.add_argument('--smoke',action='store_true');p.add_argument('--kernels',nargs='+',choices=['packbits','dicom','nrrd'],default=['packbits','dicom','nrrd']);a=p.parse_args()

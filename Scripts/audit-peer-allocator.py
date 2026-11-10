@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Second ordinary build: isolated, instrumentation-only peer snapshot.
 Never edits a sibling repository or the unmodified pinned qualification snapshot.
 """

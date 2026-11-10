@@ -1,6 +1,6 @@
 # Capability, profile and platform inventory — SwiftRLE
 
-Updated 26 October 2026. R0–R5 are independently accepted and merged; R5 PR #5 merged at `942dfb9135321bd8b3339fbbdf2388012d72c4b8` after all five required jobs in run `40273685051` and merge-tree verification. Version 1.0.0 is the first stable source-release line; publication status is tracked by GitHub. Exact macOS 26.0 and physical iPhone/iPad tests remain UNEXECUTED and WAIVED_BY_OWNER as R5 gates under DEC-11. Available native macOS/iPhone+iPad iOS 26 simulator evidence defines qualified scope; other-platform evidence is supplemental. See [R5 qualification](R5_QUALIFICATION.md) and [release notes](RELEASE_1_0_0.md).
+Updated 10 November 2026. R0–R5 are independently accepted and merged; R5 PR #5 merged at `942dfb9135321bd8b3339fbbdf2388012d72c4b8` after all five required jobs in run `40273685051` and merge-tree verification. `1.0.0` (`v1.0.0` at `640e469fc9f6f9b9da59962b7f3b5a122f96373b`) and `1.0.1` (`v1.0.1` at `4eaaf9139d2f7a836af142b4fdb32f3b9582e005`) are published source releases, downstream `DICOMKit` (`D0`–`D4`) integration is completed in `raster-labs/DICOMKit` `v3.0.0`, and `DEC-13` relicenses `SwiftRLE` to the MIT License. Exact macOS 26.0 and physical iPhone/iPad tests remain UNEXECUTED and WAIVED_BY_OWNER as R5 gates under DEC-11. Available native macOS/iPhone+iPad iOS 26 simulator evidence defines qualified scope; other-platform evidence is supplemental. See [R5 qualification](R5_QUALIFICATION.md), [1.0.0 release notes](RELEASE_1_0_0.md) and [1.0.1 release notes](RELEASE_1_0_1.md).
 
 | Surface | Supported profile | Evidence/status |
 |---|---|---|
@@ -10,7 +10,7 @@ Updated 26 October 2026. R0–R5 are independently accepted and merged; R5 PR #5
 | NRRD pipes | Attached raw2D full16 unsigned grey, explicit endian, bounded headers; no12-in-16 semantics | Actual SwiftJLS CLI pipes in both directions; Accepted R3/R4 profile; per-revision receipts bind qualification |
 | RLE <-> SwiftJLS | Unsigned12/16-in-16 grey, padded rows, either endian, one shared owner; lossless single-scan/no-ancillary/no-mapping/no-restarts JPEG-LS | Separate package pinned0791e54; Accepted R3/R4 profile; per-revision receipts bind qualification |
 | Other sibling pairs | SwiftJ2K/HTJ2K/SwiftJXL/SwiftJLI | Unavailable/unqualified |
-| DICOMKit | External candidate proof only; production D0-D4 deferred | Zero downstream edits/builds |
+| DICOMKit | External candidate proof in `Integration/SharedStorage`; downstream `D0`–`D4` cutover completed in `raster-labs/DICOMKit` `v3.0.0` (`from: "1.0.1"`) | Completed downstream in `DICOMKit` ([PR #240](https://github.com/raster-labs/DICOMKit/pull/240) `cd3528022d`, [PR #244](https://github.com/raster-labs/DICOMKit/pull/244) `79265e4d5f`); `SwiftRLE` core remains dependency-free |
 
 R2 merge `aa29491f823d0cafdb1d52dc6eb7a22d0e2b92f5`, accepted head `9da84eaf`, exact-head CI run `40069324499`: all seven jobs passed. Six host configurations executed38 debug and38 release tests and27 independent two-way DCMTK profiles per configuration: macOS arm64 Swift6.2/6.4 and Ubuntu24.04 x86_64/aarch64 Swift6.2/6.4. The AppleSDK job compiled eight device/simulator targets; it did not execute device/simulator runtimes. Earlier19-test R1 host evidence is historical and is superseded for current library coverage by the accepted38-test R2 gates.
 

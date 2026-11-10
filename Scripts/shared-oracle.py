@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Independent CC0 7x3 greyscale fixtures and real DCMTK JPEG-LS/RLE oracle."""
 import argparse,hashlib,json,pathlib,shutil,struct,subprocess
 import pydicom

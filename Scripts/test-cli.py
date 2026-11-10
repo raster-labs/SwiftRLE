@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Real process contract tests; no external codec substitute."""
 import argparse, hashlib, json, os, pathlib, re, signal, struct, subprocess, tempfile, time
 p=argparse.ArgumentParser();p.add_argument('--binary',required=True);p.add_argument('--output',required=True);a=p.parse_args()

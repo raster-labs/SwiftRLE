@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Compile exact core and run bounded fixtures in one uniquely owned simulator.
 No downloads; explicit installed runtime/device type. Host mode is supplemental.
 """

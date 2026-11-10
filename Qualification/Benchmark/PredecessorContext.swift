@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 // Benchmark-only minimal contexts, not a DICOMKit production adapter.
 import Foundation
 public protocol ImageCodec {} 

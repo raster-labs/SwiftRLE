@@ -1,5 +1,5 @@
 #!/bin/sh
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 prefix=${PREFIX:-/usr/local}

@@ -1,12 +1,15 @@
 SwiftRLE
-Copyright 2026 Raster Images Private Limited
+Copyright (c) 2026 Raster Images Private Limited
 
-This product includes software developed by Raster Images Private Limited.
+This product includes software developed by Raster Images Private Limited and
+distributed under the MIT License (see LICENSE).
 
 Portions of this software are extracted and adapted from DICOMKit
-(https://github.com/raster-labs/DICOMKit, commit 4b68d7e22829418c88e48dd53d98b25fee50d90d),
-originally distributed under the MIT License:
+(https://github.com/raster-labs/DICOMKit, extraction pin
+4b68d7e22829418c88e48dd53d98b25fee50d90d; updated LICENSE commit
+88758ba6168e670f16f3c6a08ca2245db39629f2), distributed under the MIT License:
 
+Copyright (c) 2026 Raster Images Private Limited
 Copyright (c) 2026 rasterdevapps
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

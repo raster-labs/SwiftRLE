@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 // Unshipped qualification experiments: bounded SIMD packet scanning and frame scheduling.
 import Foundation
 import CandidateRLE

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Synthetic CC0 fixtures. pydicom writes/reads containers; DCMTK codes pixels.
 No oracle dependency is imported by SwiftRLE. Missing tools are fatal.
 """
