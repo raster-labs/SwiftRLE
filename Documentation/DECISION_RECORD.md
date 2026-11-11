@@ -1,7 +1,7 @@
 # Owner decision register and governance record — SwiftRLE
 
-**Date**: 23 October 2026 (updated 10 November 2026)  
-**Current stage**: R0–R5 accepted; `1.0.0`/`1.0.1` published; downstream `DICOMKit` (`D0`–`D4`) completed in `DICOMKit v3.0.0`; `SwiftRLE` relicensed to MIT (`DEC-13`). Earlier decisions remain dated historical records.
+**Date**: 23 October 2026 (updated 11 November 2026)  
+**Current stage**: R0–R5 accepted; `1.0.0`/`1.0.1` published; downstream `DICOMKit` (`D0`–`D4`) completed in `DICOMKit v3.0.0`; `SwiftRLE` relicensed to MIT (`DEC-13`) and packaged in `1.0.2` ([RELEASE_1_0_2.md](RELEASE_1_0_2.md)). Earlier decisions remain dated historical records.
 **Status**: Owner-approved decisions recorded; governs `SwiftRLE` milestones `R0`–`R5`, MIT relicensing (`DEC-13`) and downstream `DICOMKit` `D0`–`D4` status.
 
 ---

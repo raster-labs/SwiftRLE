@@ -28,7 +28,7 @@ Read these files in order before starting any assigned milestone:
 
 ## Post-R5 1.0.0 release assignment
 
-R0–R5 are independently accepted and merged; R5 merge is `942dfb9135321bd8b3339fbbdf2388012d72c4b8` (PR #5, final five-job CI run `40273685051`). DEC-12 separately authorized stable source release `1.0.0`, `1.0.1` (`v1.0.1`) is published, downstream `DICOMKit` (`D0`–`D4`) integration is completed in `raster-labs/DICOMKit` `v3.0.0` (PR #240 `cd3528022d`, PR #244 `79265e4d5f`), and `DEC-13` relicenses `SwiftRLE` under the MIT License (`Copyright (c) 2026 Raster Images Private Limited`). Do not modify `DICOMKit` or sibling codec repositories from `SwiftRLE` tasks, and never rewrite published tags. Keep owner-waived tests (`DEC-11`) explicitly UNEXECUTED; release authority does not create device evidence.
+R0–R5 are independently accepted and merged; R5 merge is `942dfb9135321bd8b3339fbbdf2388012d72c4b8` (PR #5, final five-job CI run `40273685051`). DEC-12 separately authorized stable source release `1.0.0`, `1.0.1` (`v1.0.1`) is published, downstream `DICOMKit` (`D0`–`D4`) integration is completed in `raster-labs/DICOMKit` `v3.0.0` (PR #240 `cd3528022d`, PR #244 `79265e4d5f`), `DEC-13` relicenses `SwiftRLE` under the MIT License (`Copyright (c) 2026 Raster Images Private Limited`), and `1.0.2` packages `DEC-13` and the `D0`–`D4` completion record. Do not modify `DICOMKit` or sibling codec repositories from `SwiftRLE` tasks, and never rewrite published tags. Keep owner-waived tests (`DEC-11`) explicitly UNEXECUTED; release authority does not create device evidence.
 
 ## Non-negotiable engineering rules
 

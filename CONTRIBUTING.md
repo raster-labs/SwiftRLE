@@ -1,6 +1,6 @@
 # Contributing
 
-Start with [AGENTS.md](AGENTS.md) and [IMPLEMENTATION.md](IMPLEMENTATION.md). R0–R5 are independently accepted and merged; `1.0.0` and `1.0.1` are published, downstream `DICOMKit` (`D0`–`D4`) integration is completed in `raster-labs/DICOMKit` `v3.0.0`, and `DEC-13` governs `SwiftRLE`'s MIT licensing. Keep changes bounded to the assigned task and preserve standalone package consumption with zero sibling-codec or `DICOMKit` dependencies.
+Start with [AGENTS.md](AGENTS.md) and [IMPLEMENTATION.md](IMPLEMENTATION.md). R0–R5 are independently accepted and merged; `1.0.0`, `1.0.1` and `1.0.2` are the stable source-release lines, downstream `DICOMKit` (`D0`–`D4`) integration is completed in `raster-labs/DICOMKit` `v3.0.0`, and `DEC-13` governs `SwiftRLE`'s MIT licensing. Keep changes bounded to the assigned task and preserve standalone package consumption with zero sibling-codec or `DICOMKit` dependencies.
 
 Every behavioural change requires unit and regression tests. Parser, header or ownership changes require matching malformed-input, bounds and `StorageWriteLease` lifetime checks; hot-path or SIMD/concurrency changes require controlled release benchmark evidence ([Documentation/PERFORMANCE.md](Documentation/PERFORMANCE.md)). Changes to common API types require coordinated contract revision across the suite ([Documentation/COMMON_API.md](Documentation/COMMON_API.md)).
 
