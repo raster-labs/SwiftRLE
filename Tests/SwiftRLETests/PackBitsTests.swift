@@ -345,8 +345,9 @@ struct PackBitsTests {
         try StorageTelemetry.$recorder.withValue(recorder) {
             let raw = Data([1, 1, 1, 2, 3, 4, 5, 5, 5, 5])
             let enc = try encoder.encode(raw, options: EncodeOptions(executionPolicy: .preferred(.accelerated)))
-            #expect(enc.report.backend == .scalarCPU)
-            #expect(enc.report.fallbackReason != nil)
+            let expectedBackend: Backend = AccelerationRuntime.isAvailable ? .accelerated : .scalarCPU
+            #expect(enc.report.backend == expectedBackend)
+            #expect((enc.report.fallbackReason == nil) == AccelerationRuntime.isAvailable)
             #expect(enc.report.pixelAllocationCount == 0)
             #expect(enc.report.peakPixelBytes == 0)
             #expect(enc.report.peakWorkspaceBytes == 0)
@@ -357,20 +358,30 @@ struct PackBitsTests {
                 options: DecodeOptions(executionPolicy: .preferred(.accelerated))
             )
             #expect(dec.data == raw)
-            #expect(dec.report.backend == .scalarCPU)
-            #expect(dec.report.fallbackReason != nil)
+            #expect(dec.report.backend == expectedBackend)
+            #expect((dec.report.fallbackReason == nil) == AccelerationRuntime.isAvailable)
             #expect(dec.report.pixelAllocationCount == 0)
             #expect(dec.report.peakPixelBytes == 0)
             #expect(dec.report.peakWorkspaceBytes == 0)
             #expect(recorder.counts == StorageTelemetry.Counts())
         }
 
-        // 2. ExecutionPolicy.required(.accelerated) fails with .backendUnavailable
-        #expect(throws: CodecError(.backendUnavailable, "No accelerated backend is implemented.")) {
-            _ = try encoder.encode(Data([1, 2]), options: EncodeOptions(executionPolicy: .required(.accelerated)))
+        // 2. ExecutionPolicy.required(.accelerated) succeeds when available and fails with .backendUnavailable when unavailable
+        if AccelerationRuntime.isAvailable {
+            let reqEnc = try encoder.encode(Data([1, 2]), options: EncodeOptions(executionPolicy: .required(.accelerated)))
+            #expect(reqEnc.report.backend == .accelerated && reqEnc.report.fallbackReason == nil)
+            let reqDec = try decoder.decode(Data([0x01, 1, 2]), expectedByteCount: 2, options: DecodeOptions(executionPolicy: .required(.accelerated)))
+            #expect(reqDec.report.backend == .accelerated && reqDec.report.fallbackReason == nil)
         }
-        #expect(throws: CodecError(.backendUnavailable, "No accelerated backend is implemented.")) {
-            _ = try decoder.decode(Data([0x01, 1, 2]), expectedByteCount: 2, options: DecodeOptions(executionPolicy: .required(.accelerated)))
+        try AccelerationRuntime.withSimulatedUnavailable {
+            let unavailEnc = try encoder.encode(Data([1, 2]), options: EncodeOptions(executionPolicy: .preferred(.accelerated)))
+            #expect(unavailEnc.report.backend == .scalarCPU && unavailEnc.report.fallbackReason != nil)
+            #expect(throws: CodecError(.backendUnavailable, "No accelerated backend is available on this runtime.")) {
+                _ = try encoder.encode(Data([1, 2]), options: EncodeOptions(executionPolicy: .required(.accelerated)))
+            }
+            #expect(throws: CodecError(.backendUnavailable, "No accelerated backend is available on this runtime.")) {
+                _ = try decoder.decode(Data([0x01, 1, 2]), expectedByteCount: 2, options: DecodeOptions(executionPolicy: .required(.accelerated)))
+            }
         }
 
         // 3. Deterministic byte mutation survival (seed 0xD1C0_2026_0810_0201)

@@ -54,7 +54,9 @@ package struct Arguments {
         case nil, "automatic": return .automatic
         case "scalar", "scalar-cpu": return .scalarCPU
         case "preferred-accelerated": return .preferred(.accelerated)
-        case "required-accelerated": throw CLIError(4)
+        case "required-accelerated":
+            guard AccelerationRuntime.isAvailable else { throw CLIError(4) }
+            return .required(.accelerated)
         default: throw CLIError(2)
         }
     }

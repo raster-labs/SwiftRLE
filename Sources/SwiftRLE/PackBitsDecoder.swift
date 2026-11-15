@@ -21,17 +21,19 @@ public struct DecodedBytes: Sendable, Equatable {
 public struct PackBitsDecoder: Sendable {
     public let configuration: DecoderConfiguration
 
-    public static let capabilities = CodecCapabilities(
-        formats: [RLEProfile.packBits.rawValue],
-        compressionModes: [.lossless],
-        sampleTypes: [.unsignedInteger, .signedInteger],
-        meaningfulPrecision: 8...8,
-        layouts: ["packbits-bytes", "packbits-row-constrained"],
-        availableBackends: [.scalarCPU],
-        canInspect: false,
-        canEncode: false,
-        canDecode: true
-    )
+    public static var capabilities: CodecCapabilities {
+        CodecCapabilities(
+            formats: [RLEProfile.packBits.rawValue],
+            compressionModes: [.lossless],
+            sampleTypes: [.unsignedInteger, .signedInteger],
+            meaningfulPrecision: 8...8,
+            layouts: ["packbits-bytes", "packbits-row-constrained"],
+            availableBackends: AccelerationRuntime.availableBackends,
+            canInspect: false,
+            canEncode: false,
+            canDecode: true
+        )
+    }
 
     public var capabilities: CodecCapabilities { Self.capabilities }
 
@@ -75,12 +77,14 @@ public struct PackBitsDecoder: Sendable {
         public let rowCount: Int?
         public let maximumPacketOperations: Int
         private let options: DecodeOptions
+        private let resolvedBackend: Backend
         private let fallbackReason: String?
         private let clock: ContinuousClock
         private let started: ContinuousClock.Instant
         private let deadline: ContinuousClock.Instant
         private let maxCompressedBytes: Int
         private var output: Data
+        private var writtenBytes = 0
         private var pending: PendingPacket = .awaitingControl
         private var consumedBytes = 0
         private var packetOperations = 0
@@ -92,6 +96,7 @@ public struct PackBitsDecoder: Sendable {
             rowCount: Int?,
             maximumPacketOperations: Int,
             options: DecodeOptions,
+            resolvedBackend: Backend,
             fallbackReason: String?
         ) throws {
             self.expectedByteCount = expectedByteCount
@@ -99,6 +104,7 @@ public struct PackBitsDecoder: Sendable {
             self.rowCount = rowCount
             self.maximumPacketOperations = maximumPacketOperations
             self.options = options
+            self.resolvedBackend = resolvedBackend
             self.fallbackReason = fallbackReason
             self.clock = ContinuousClock()
             self.started = clock.now
@@ -106,11 +112,7 @@ public struct PackBitsDecoder: Sendable {
             self.maxCompressedBytes = min(options.resourceLimits.maximumCompressedBytes,
                                           options.resourceLimits.maximumMemoryBytes - expectedByteCount)
             try Task.checkCancellation()
-            var out = Data()
-            if expectedByteCount > 0 {
-                out.reserveCapacity(expectedByteCount)
-            }
-            self.output = out
+            self.output = expectedByteCount > 0 ? Data(count: expectedByteCount) : Data()
             options.progress?(try ProgressUpdate(phase: .inspecting, completedUnits: 0, totalUnits: max(1, expectedByteCount)))
         }
 
@@ -155,60 +157,123 @@ public struct PackBitsDecoder: Sendable {
                     return
                 }
 
-                var index = 0
-                let count = chunk.count
-                while index < count {
-                    switch pending {
-                    case .awaitingControl:
-                        packetOperations += 1
-                        if packetOperations % 64 == 0 {
-                            try Task.checkCancellation()
-                            if clock.now > deadline {
-                                throw CodecError(.resourceLimitExceeded, "PackBits decode operation exceeded deadline.")
-                            }
-                        }
-                        guard packetOperations <= maximumPacketOperations else {
-                            throw CodecError(.resourceLimitExceeded, "PackBits packet/NOP operation budget (\(maximumPacketOperations)) exceeded.")
-                        }
+                let localClock = clock
+                let localDeadline = deadline
+                let maxPacketOps = maximumPacketOperations
+                let expectedBytes = expectedByteCount
+                let rb = rowBytes
+                var localPending = pending
+                var localPacketOps = packetOperations
+                var localConsumed = consumedBytes
+                var localWritten = writtenBytes
 
-                        // Widen signed control byte (`Int8`) to `Int` before any arithmetic or negation.
-                        let rawControl = Int(Int8(bitPattern: base[index]))
-                        index += 1
-                        consumedBytes += 1
-
-                        if rawControl == -128 {
-                            // 0x80: PackBits no-op control byte; produces zero bytes.
-                            continue
-                        } else if rawControl >= 0 {
-                            let literalCount = rawControl + 1
-                            try validatePacketFit(packetOutputCount: literalCount)
-                            pending = .awaitingLiteralBytes(remaining: literalCount)
-                        } else {
-                            let repeatCount = (-rawControl) + 1
-                            try validatePacketFit(packetOutputCount: repeatCount)
-                            pending = .awaitingRepeatByte(count: repeatCount)
+                @inline(__always)
+                func checkPacketFit(_ packetOutputCount: Int) throws {
+                    let nextOutputCount = try checkedAdd(
+                        localWritten,
+                        packetOutputCount,
+                        category: .malformedInput,
+                        message: "PackBits decoded output length overflow."
+                    )
+                    guard nextOutputCount <= expectedBytes else {
+                        throw CodecError(
+                            .malformedInput,
+                            "PackBits run of \(packetOutputCount) bytes exceeds expected decoded length \(expectedBytes) (at offset \(localWritten))."
+                        )
+                    }
+                    if let rb, rb > 0 {
+                        let offsetInRow = localWritten % rb
+                        let remainingInRow = rb - offsetInRow
+                        guard packetOutputCount <= remainingInRow else {
+                            throw CodecError(
+                                .malformedInput,
+                                "PackBits packet of \(packetOutputCount) bytes crosses row boundary (\(remainingInRow) bytes remaining in \(rb)-byte row)."
+                            )
                         }
-
-                    case .awaitingLiteralBytes(let remaining):
-                        let available = count - index
-                        let copyCount = min(remaining, available)
-                        output.append(UnsafeBufferPointer(start: base.advanced(by: index), count: copyCount))
-                        index += copyCount
-                        consumedBytes += copyCount
-                        if copyCount == remaining {
-                            pending = .awaitingControl
-                        } else {
-                            pending = .awaitingLiteralBytes(remaining: remaining - copyCount)
-                        }
-
-                    case .awaitingRepeatByte(let repeatCount):
-                        let value = base[index]
-                        index += 1
-                        consumedBytes += 1
-                        output.append(contentsOf: repeatElement(value, count: repeatCount))
-                        pending = .awaitingControl
                     }
                 }
+
+                try output.withUnsafeMutableBytes { outRaw in
+                    let dstBase = outRaw.baseAddress?.assumingMemoryBound(to: UInt8.self)
+                    var index = 0
+                    let count = chunk.count
+                    while index < count {
+                        switch localPending {
+                        case .awaitingControl:
+                            localPacketOps += 1
+                            if (localPacketOps & 255) == 0 {
+                                try Task.checkCancellation()
+                                if localClock.now > localDeadline {
+                                    throw CodecError(.resourceLimitExceeded, "PackBits decode operation exceeded deadline.")
+                                }
+                            }
+                            guard localPacketOps <= maxPacketOps else {
+                                throw CodecError(.resourceLimitExceeded, "PackBits packet/NOP operation budget (\(maxPacketOps)) exceeded.")
+                            }
+
+                            let rawControl = Int(Int8(bitPattern: base[index]))
+                            index += 1
+                            localConsumed += 1
+
+                            if rawControl == -128 {
+                                continue
+                            } else if rawControl >= 0 {
+                                let literalCount = rawControl + 1
+                                try checkPacketFit(literalCount)
+                                if index + literalCount <= count, let dstBase {
+                                    dstBase.advanced(by: localWritten).update(from: base.advanced(by: index), count: literalCount)
+                                    localWritten += literalCount
+                                    index += literalCount
+                                    localConsumed += literalCount
+                                } else {
+                                    localPending = .awaitingLiteralBytes(remaining: literalCount)
+                                }
+                            } else {
+                                let repeatCount = (-rawControl) + 1
+                                try checkPacketFit(repeatCount)
+                                if index < count, let dstBase {
+                                    let value = base[index]
+                                    index += 1
+                                    localConsumed += 1
+                                    dstBase.advanced(by: localWritten).update(repeating: value, count: repeatCount)
+                                    localWritten += repeatCount
+                                } else {
+                                    localPending = .awaitingRepeatByte(count: repeatCount)
+                                }
+                            }
+
+                        case .awaitingLiteralBytes(let remaining):
+                            let available = count - index
+                            let copyCount = min(remaining, available)
+                            if copyCount > 0, let dstBase {
+                                dstBase.advanced(by: localWritten).update(from: base.advanced(by: index), count: copyCount)
+                            }
+                            localWritten += copyCount
+                            index += copyCount
+                            localConsumed += copyCount
+                            if copyCount == remaining {
+                                localPending = .awaitingControl
+                            } else {
+                                localPending = .awaitingLiteralBytes(remaining: remaining - copyCount)
+                            }
+
+                        case .awaitingRepeatByte(let repeatCount):
+                            let value = base[index]
+                            index += 1
+                            localConsumed += 1
+                            if repeatCount > 0, let dstBase {
+                                dstBase.advanced(by: localWritten).update(repeating: value, count: repeatCount)
+                            }
+                            localWritten += repeatCount
+                            localPending = .awaitingControl
+                        }
+                    }
+                }
+
+                pending = localPending
+                packetOperations = localPacketOps
+                consumedBytes = localConsumed
+                writtenBytes = localWritten
             }
         }
 
@@ -234,10 +299,10 @@ public struct PackBitsDecoder: Sendable {
                 throw CodecError(.malformedInput, "Truncated PackBits repeat packet missing byte value.")
             }
 
-            guard output.count == expectedByteCount else {
+            guard writtenBytes == expectedByteCount else {
                 throw CodecError(
                     .malformedInput,
-                    "PackBits stream ended after \(output.count) of \(expectedByteCount) expected bytes."
+                    "PackBits stream ended after \(writtenBytes) of \(expectedByteCount) expected bytes."
                 )
             }
 
@@ -256,7 +321,7 @@ public struct PackBitsDecoder: Sendable {
 
             let elapsed = clock.now - started
             let report = OperationReport(
-                backend: .scalarCPU,
+                backend: resolvedBackend,
                 fallbackReason: fallbackReason,
                 fidelity: .exactSamples,
                 copyEvents: [],
@@ -270,7 +335,7 @@ public struct PackBitsDecoder: Sendable {
 
         private func validatePacketFit(packetOutputCount: Int) throws {
             let nextOutputCount = try checkedAdd(
-                output.count,
+                writtenBytes,
                 packetOutputCount,
                 category: .malformedInput,
                 message: "PackBits decoded output length overflow."
@@ -278,11 +343,11 @@ public struct PackBitsDecoder: Sendable {
             guard nextOutputCount <= expectedByteCount else {
                 throw CodecError(
                     .malformedInput,
-                    "PackBits run of \(packetOutputCount) bytes exceeds expected decoded length \(expectedByteCount) (at offset \(output.count))."
+                    "PackBits run of \(packetOutputCount) bytes exceeds expected decoded length \(expectedByteCount) (at offset \(writtenBytes))."
                 )
             }
             if let rb = rowBytes, rb > 0 {
-                let offsetInRow = output.count % rb
+                let offsetInRow = writtenBytes % rb
                 let remainingInRow = rb - offsetInRow
                 guard packetOutputCount <= remainingInRow else {
                     throw CodecError(
@@ -302,7 +367,8 @@ public struct PackBitsDecoder: Sendable {
         options: DecodeOptions = .init()
     ) throws -> IncrementalSession {
         try Task.checkCancellation()
-        let fallbackReason = try validateExecutionPolicy(options.executionPolicy)
+        let resolved = try AccelerationRuntime.resolve(options.executionPolicy)
+        let fallbackReason = resolved.fallbackReason
 
         if let callCodecOptions = options.codecOptions {
             guard callCodecOptions.profile == .packBits,
@@ -365,6 +431,7 @@ public struct PackBitsDecoder: Sendable {
             rowCount: effectiveRowCount,
             maximumPacketOperations: maxOps,
             options: options,
+            resolvedBackend: resolved.backend,
             fallbackReason: fallbackReason
         )
     }

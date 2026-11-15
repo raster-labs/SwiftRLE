@@ -109,7 +109,8 @@ package struct Main {
         if a.command == "help" || a.flags.contains("help") { try io.publish([Data((helpFor(a.values["topic"] ?? a.command)+"\n").utf8)],path:"-",overwrite:false); completed=true; return }
         if a.command == "version" { try io.publish([Data((version+"\n").utf8)],path:"-",overwrite:false); completed=true; return }
         if a.command == "capabilities" {
-            let value: [String:Any] = ["version":version,"formats":["packbits","dicom-rle-frame"],"interchange":["nrrd-attached-raw-2d-uint16"],"encode":true,"decode":true,"inspect":true,"externalFrameDescriptorRequired":true,"backends":["scalarCPU"]]
+            let backendNames = AccelerationRuntime.availableBackends.map { $0 == .accelerated ? "accelerated" : "scalarCPU" }
+            let value: [String:Any] = ["version":version,"formats":["packbits","dicom-rle-frame"],"interchange":["nrrd-attached-raw-2d-uint16"],"encode":true,"decode":true,"inspect":true,"externalFrameDescriptorRequired":true,"backends":backendNames]
             try io.publish([try JSONSerialization.data(withJSONObject:value,options:[.sortedKeys]),Data([10])],path:"-",overwrite:false); completed=true; return
         }
         let memory = try a.integer("max-memory",default:1_073_741_824), threads = try a.integer("threads",default:2)
@@ -173,7 +174,11 @@ package struct Main {
             try io.publish([try JSONSerialization.data(withJSONObject:info,options:[.sortedKeys]),Data([10])],path:"-",overwrite:false)
         } else {
             try io.publish(output,path:a.values["output"] ?? "-",overwrite:a.flags.contains("overwrite"))
-            if a.flags.contains("json") { let object: [String:Any] = ["success":true,"backend":"scalarCPU","fallback":report?.fallbackReason as Any? ?? NSNull(),"outputBytes":output.reduce(0,{$0+$1.count})]; message(String(decoding:try JSONSerialization.data(withJSONObject:object,options:[.sortedKeys]),as:UTF8.self)) }
+            if a.flags.contains("json") {
+                let backendName = (report?.backend == .accelerated) ? "accelerated" : "scalarCPU"
+                let object: [String:Any] = ["success":true,"backend":backendName,"fallback":report?.fallbackReason as Any? ?? NSNull(),"outputBytes":output.reduce(0,{$0+$1.count})]
+                message(String(decoding:try JSONSerialization.data(withJSONObject:object,options:[.sortedKeys]),as:UTF8.self))
+            }
         }
 
         completed=true

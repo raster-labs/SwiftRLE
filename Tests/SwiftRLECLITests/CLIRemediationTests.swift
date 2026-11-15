@@ -56,8 +56,13 @@ struct CLIRemediationTests {
         #expect(classify(try preferred.executionPolicy()) == .preferredAccelerated)
 
         let required = try Arguments(baseArgs + ["--backend", "required-accelerated"])
-        expectCLIExit(4) { try required.validate() }
-        expectCLIExit(4) { _ = try required.executionPolicy() }
+        if AccelerationRuntime.isAvailable {
+            try required.validate()
+        }
+        AccelerationRuntime.withSimulatedUnavailable {
+            expectCLIExit(4) { try required.validate() }
+            expectCLIExit(4) { _ = try required.executionPolicy() }
+        }
 
         let invalid = try Arguments(baseArgs + ["--backend", "gpu"])
         expectCLIExit(2) { try invalid.validate() }
@@ -171,13 +176,15 @@ struct CLIRemediationTests {
             #expect(try Data(contentsOf: decOut) == framePixels)
         }
 
-        // Direct run defence-in-depth for required-accelerated without validate()
+        // Direct run defence-in-depth for required-accelerated without validate() when unavailable
         let requiredOut = dir.appendingPathComponent("never-created.packbits")
         let unvalidatedRequired = try Arguments([
             "encode", "-i", rawInput.path, "--input-format", "raw", "--output-format", "packbits",
             "-o", requiredOut.path, "--backend", "required-accelerated"
         ])
-        expectCLIExit(4) { try Main.run(unvalidatedRequired, control: Control(seconds: 30)) }
+        AccelerationRuntime.withSimulatedUnavailable {
+            expectCLIExit(4) { try Main.run(unvalidatedRequired, control: Control(seconds: 30)) }
+        }
         #expect(!FileManager.default.fileExists(atPath: requiredOut.path))
     }
 

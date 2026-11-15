@@ -86,7 +86,10 @@ struct OptimizationTests {
         let c=try decoder.decodeSynchronously(candidate.data,into:destination,options:candidateOptions)
         #expect(c.image.storage.allocationID==destination.storage.allocationID)
         #expect(try c.image.storage.withUnsafeBytes{Data($0)}==bb)
-        #expect(candidate.report.backend == .scalarCPU)
-        #expect(b.report.backend == .scalarCPU)
+        let expectedBackend: Backend = AccelerationRuntime.isAvailable ? .accelerated : .scalarCPU
+        #expect(reference.report.backend == .scalarCPU)
+        #expect(a.report.backend == .scalarCPU)
+        #expect(candidate.report.backend == expectedBackend)
+        #expect(b.report.backend == expectedBackend)
     }
 }

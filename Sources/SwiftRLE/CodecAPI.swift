@@ -163,7 +163,7 @@ public struct DecodedImage: Sendable {
 /// Image-level strict DICOM RLE encoder using direct strided byte-lane reads.
 public struct Encoder: Sendable {
     public let configuration: EncoderConfiguration
-    public static let capabilities: CodecCapabilities = DICOMRLEFrame.capabilities
+    public static var capabilities: CodecCapabilities { DICOMRLEFrame.capabilities }
     public var capabilities: CodecCapabilities { Self.capabilities }
 
     public init(configuration: EncoderConfiguration = .default) throws {
@@ -190,7 +190,7 @@ public struct Encoder: Sendable {
 /// Image-level strict DICOM RLE decoder using one shared final-output kernel.
 public struct Decoder: Sendable {
     public let configuration: DecoderConfiguration
-    public static let capabilities: CodecCapabilities = DICOMRLEFrame.capabilities
+    public static var capabilities: CodecCapabilities { DICOMRLEFrame.capabilities }
     public var capabilities: CodecCapabilities { Self.capabilities }
 
     public init(configuration: DecoderConfiguration = .init()) throws {
@@ -257,6 +257,11 @@ public struct Decoder: Sendable {
         return ImageInfo(format: "dicom-rle", descriptor: frame.imageDescriptor, frameCount: 1, metadata: frame.metadata)
     }
 
+    /// Explicit synchronous header inspection wrapper.
+    public func inspectSynchronously(_ data: Data, options: DecodeOptions = .init()) throws -> ImageInfo {
+        try inspect(data, options: options)
+    }
+
     @concurrent public func decode(_ data: Data, options: DecodeOptions = .init()) async throws -> DecodedImage {
         try decodeSynchronously(data, options: options)
     }
@@ -294,35 +299,34 @@ public struct Decoder: Sendable {
         _ = try RLEFrameDescriptor(imageDescriptor: destination.descriptor, limits: options.resourceLimits)
         try DICOMRLEFrame.compatible(frame.imageDescriptor, destination.descriptor)
         let header = try DICOMRLEFrame.preflight(data, descriptor: frame, capacity: destination.storage.byteCount, options: options, gate: gate)
-        let fallback = try validateExecutionPolicy(options.executionPolicy)
+        let resolved = try AccelerationRuntime.resolve(options.executionPolicy)
         options.progress?(try ProgressUpdate(phase: .inspecting, completedUnits: 0, totalUnits: 1))
         try gate.check()
         var normalized = false
         let image = try destination.writeValidated(metadata: frame.metadata, validate: { try gate.check() }, admissionCheck: { try gate.check() }) { bytes in
             try DICOMRLEFrame.scatter(data, header: header, descriptor: destination.descriptor, out: bytes,
                 multiplier: options.codecOptions?.maximumPacketOperationsPerOutputByte ?? configuration.codecOptions.maximumPacketOperationsPerOutputByte,
-                canonical: true, normalized: &normalized, gate: gate, policy: options.executionPolicy)
+                canonical: true, normalized: &normalized, gate: gate, policy: options.executionPolicy,
+                backend: resolved.backend, maxWorkers: options.resourceLimits.maximumWorkers)
             try gate.check()
         }
         try gate.check()
         options.progress?(try ProgressUpdate(phase: .completed, completedUnits: 1, totalUnits: 1))
         try gate.check()
-        return DecodedImage(image: image, report: DICOMRLEFrame.report(capacity: destination.storage.byteCount,
-            allocations: allocations, fallback: fallback, normalized: normalized))
+        return DecodedImage(image: image, report: DICOMRLEFrame.report(
+            backend: resolved.backend,
+            capacity: destination.storage.byteCount,
+            allocations: allocations,
+            fallback: resolved.fallbackReason,
+            normalized: normalized
+        ))
     }
 
 }
 
 @discardableResult
 func validateExecutionPolicy(_ policy: ExecutionPolicy) throws -> String? {
-    switch policy {
-    case .automatic, .scalarCPU, .preferred(.scalarCPU), .required(.scalarCPU):
-        return nil
-    case .preferred(.accelerated):
-        return "Accelerated backend is not implemented; using scalarCPU."
-    case .required(.accelerated):
-        throw CodecError(.backendUnavailable, "No accelerated backend is implemented.")
-    }
+    try AccelerationRuntime.resolve(policy).fallbackReason
 }
 
 private func validateInput(_ data: Data, _ options: DecodeOptions) throws {

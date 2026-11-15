@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import Synchronization
 
 /// Structural facts only: geometry and interpretation always remain external.
 public struct DICOMRLEHeader: Sendable, Equatable {
@@ -41,10 +42,19 @@ public struct RawAllocatedCells: Sendable {
 
 /// Strict DICOM frame kernel. No decoded plane or pixel repack is allocated.
 public enum DICOMRLEFrame {
-    static let capabilities = CodecCapabilities(formats: ["dicom-rle"], compressionModes: [.lossless],
-        sampleTypes: [.unsignedInteger, .signedInteger], meaningfulPrecision: 1...16,
-        layouts: [CodecCapabilities.sharedGreyscaleLayout, "8/16-bit-mono-palette", "unsigned-RGB-YBR_FULL-interleaved-planar"],
-        availableBackends: [.scalarCPU], canInspect: true, canEncode: true, canDecode: true)
+    static var capabilities: CodecCapabilities {
+        CodecCapabilities(
+            formats: ["dicom-rle"],
+            compressionModes: [.lossless],
+            sampleTypes: [.unsignedInteger, .signedInteger],
+            meaningfulPrecision: 1...16,
+            layouts: [CodecCapabilities.sharedGreyscaleLayout, "8/16-bit-mono-palette", "unsigned-RGB-YBR_FULL-interleaved-planar"],
+            availableBackends: AccelerationRuntime.availableBackends,
+            canInspect: true,
+            canEncode: true,
+            canDecode: true
+        )
+    }
 
     /// Raw route preserves every allocated bit and supplies no canonical Image.
     public static func decodeAllocatedCells(_ data: Data, descriptor: RLEFrameDescriptor,
@@ -58,6 +68,7 @@ public enum DICOMRLEFrame {
         }
         let header = try preflight(data, descriptor: descriptor, capacity: descriptor.imageDescriptor.requiredByteCount,
                                    options: options, gate: gate)
+        let resolved = try AccelerationRuntime.resolve(options.executionPolicy)
         options.progress?(try ProgressUpdate(phase: .inspecting, completedUnits: 0, totalUnits: 1))
         try gate.check()
         let owner = try OwnedImageStorage(byteCount: descriptor.imageDescriptor.requiredByteCount, limits: options.resourceLimits)
@@ -65,32 +76,63 @@ public enum DICOMRLEFrame {
         do {
             var normalized = false
             try owner.withUnsafeMutableBytes(lease: lease) { out in
-                try scatter(data, header: header, descriptor: descriptor.imageDescriptor, out: out,
-                            multiplier: options.codecOptions?.maximumPacketOperationsPerOutputByte ?? 2, canonical: false, normalized: &normalized, gate: gate, policy: options.executionPolicy)
+                try scatter(
+                    data,
+                    header: header,
+                    descriptor: descriptor.imageDescriptor,
+                    out: out,
+                    multiplier: options.codecOptions?.maximumPacketOperationsPerOutputByte ?? 2,
+                    canonical: false,
+                    normalized: &normalized,
+                    gate: gate,
+                    policy: options.executionPolicy,
+                    backend: resolved.backend,
+                    maxWorkers: options.resourceLimits.maximumWorkers
+                )
             }
             try gate.check()
             let sealed = try owner.finishAndSeal(lease: lease)
             try gate.check()
             options.progress?(try ProgressUpdate(phase: .completed, completedUnits: 1, totalUnits: 1))
             try gate.check()
-            return RawAllocatedCells(descriptor: descriptor, storage: sealed,
-                report: report(capacity: owner.byteCount, allocations: 1, fallback: try validateExecutionPolicy(options.executionPolicy)))
-        } catch { try? owner.abortAndInvalidate(lease: lease); throw error }
+            return RawAllocatedCells(
+                descriptor: descriptor,
+                storage: sealed,
+                report: report(
+                    backend: resolved.backend,
+                    capacity: owner.byteCount,
+                    allocations: 1,
+                    fallback: resolved.fallbackReason
+                )
+            )
+        } catch {
+            try? owner.abortAndInvalidate(lease: lease)
+            throw error
+        }
     }
 
-    static func report(capacity: Int, allocations: Int, fallback: String?, normalized: Bool = false) -> OperationReport {
-        OperationReport(backend: .scalarCPU, fallbackReason: fallback, fidelity: .exactSamples,
-                        pixelAllocationCount: allocations, peakPixelBytes: capacity, peakWorkspaceBytes: 0,
-                        sampleNormalizations: normalized ? ["Unused allocated bits masked/sign-extended in final output."] : [])
+    static func report(backend: Backend = .scalarCPU, capacity: Int, allocations: Int, fallback: String?, normalized: Bool = false) -> OperationReport {
+        OperationReport(
+            backend: backend,
+            fallbackReason: fallback,
+            fidelity: .exactSamples,
+            pixelAllocationCount: allocations,
+            peakPixelBytes: capacity,
+            peakWorkspaceBytes: 0,
+            sampleNormalizations: normalized ? ["Unused allocated bits masked/sign-extended in final output."] : []
+        )
     }
 
     static func preflight(_ data: Data, descriptor: RLEFrameDescriptor, capacity: Int,
                           options: DecodeOptions, gate: FrameGate) throws -> DICOMRLEHeader {
         try gate.check()
-        _ = try validateExecutionPolicy(options.executionPolicy)
+        _ = try AccelerationRuntime.resolve(options.executionPolicy)
         try descriptor.imageDescriptor.validate(limits: options.resourceLimits)
-        let metadata = try descriptor.metadata.validate(limits: options.resourceLimits,
-                              additionalBytes: descriptor.imageDescriptor.iccProfile?.count ?? 0, check: { try gate.check() })
+        let metadata = try descriptor.metadata.validate(
+            limits: options.resourceLimits,
+            additionalBytes: descriptor.imageDescriptor.iccProfile?.count ?? 0,
+            check: { try gate.check() }
+        )
         guard data.count <= options.resourceLimits.maximumCompressedBytes,
               capacity <= options.resourceLimits.maximumDecodedBytes,
               try checkedAdd(checkedAdd(data.count, capacity), metadata) <= options.resourceLimits.maximumMemoryBytes else {
@@ -103,13 +145,11 @@ public enum DICOMRLEFrame {
     }
 
     /// Addressing is resolved only after descriptor validation. It owns no pixels,
-    /// scratch planes or pointers. Byte-lane stores remain serial and byte-wide.
+    /// scratch planes or pointers.
     private struct ComponentAddressing: Sendable {
         let offset: Int
         let rowBytes: Int
         let pixelStride: Int
-        // Unused fields on the reference branch avoid resolving a second address
-        // map. No pointer or image storage is created here.
         static let reference = Self(offset: 0, rowBytes: 0, pixelStride: 0)
         private init(offset: Int, rowBytes: Int, pixelStride: Int) {
             self.offset = offset; self.rowBytes = rowBytes; self.pixelStride = pixelStride
@@ -117,10 +157,11 @@ public enum DICOMRLEFrame {
         init(_ descriptor: ImageDescriptor, component: Int) throws {
             for plane in descriptor.planes {
                 if let index = plane.components.firstIndex(of: component) {
-                    offset = plane.offset + index * plane.sampleStride
-                    rowBytes = SharedPathMutation.active == .ignoreRowStride
-                        ? descriptor.width * plane.pixelStride : plane.rowBytes
-                    pixelStride = plane.pixelStride
+                    offset = plane.offset + (index == 0 ? 0 : index * plane.sampleStride)
+                    rowBytes = descriptor.height == 1
+                        ? 0
+                        : (SharedPathMutation.active == .ignoreRowStride ? descriptor.width * plane.pixelStride : plane.rowBytes)
+                    pixelStride = descriptor.width == 1 ? 0 : plane.pixelStride
                     return
                 }
             }
@@ -128,11 +169,7 @@ public enum DICOMRLEFrame {
         }
     }
 
-    /// Explicit scalar policy retains the accepted reference address lookup.
-    /// Automatic/preferred policies only hoist invariant scalar addressing;
-    /// they do not advertise an accelerated backend or relax backend validation.
     private static func usesReferenceAddressing(_ policy: ExecutionPolicy, descriptor: ImageDescriptor) -> Bool {
-        // A one-pixel image cannot amortise address-hoisting setup.
         if descriptor.width == 1 && descriptor.height == 1 { return true }
         if case .scalarCPU = policy { return true }
         if case .required(.scalarCPU) = policy { return true }
@@ -140,22 +177,126 @@ public enum DICOMRLEFrame {
     }
 
     static func location(_ descriptor: ImageDescriptor, component: Int, x: Int, y: Int) -> Int {
-        // Validated descriptors prove all arithmetic and disjoint extents.
         for plane in descriptor.planes {
             if let index = plane.components.firstIndex(of: component) {
                 let row = SharedPathMutation.active == .ignoreRowStride ? descriptor.width * plane.pixelStride : plane.rowBytes
-                return plane.offset + y * row + x * plane.pixelStride + index * plane.sampleStride
+                return plane.offset
+                    + (y == 0 ? 0 : y * row)
+                    + (x == 0 ? 0 : x * plane.pixelStride)
+                    + (index == 0 ? 0 : index * plane.sampleStride)
             }
         }
-        return 0 // Constructor guarantees every component is mapped exactly once.
+        return 0
     }
 
-    static func scatter(_ data: Data, header: DICOMRLEHeader, descriptor: ImageDescriptor,
-                        out: UnsafeMutableRawBufferPointer, multiplier: Int, canonical: Bool, normalized: inout Bool, gate: FrameGate, policy: ExecutionPolicy = .automatic) throws {
-        guard out.count >= descriptor.requiredByteCount else { throw CodecError(.storageUnavailable, "Short destination borrow.") }
+    static func scatter(
+        _ data: Data,
+        header: DICOMRLEHeader,
+        descriptor: ImageDescriptor,
+        out: UnsafeMutableRawBufferPointer,
+        multiplier: Int,
+        canonical: Bool,
+        normalized: inout Bool,
+        gate: FrameGate,
+        policy: ExecutionPolicy = .automatic,
+        backend: Backend = .scalarCPU,
+        maxWorkers: Int = 1
+    ) throws {
+        guard out.count >= descriptor.requiredByteCount else {
+            throw CodecError(.storageUnavailable, "Short destination borrow.")
+        }
         let bytesPerSample = descriptor.storageBits / 8
         let pixels = try checkedMultiply(descriptor.width, descriptor.height)
         let budget = try checkedAdd(64, checkedMultiply(pixels, multiplier))
+
+        if backend == .accelerated && !(descriptor.width == 1 && descriptor.height == 1) {
+            let segmentCount = header.segmentRanges.count
+            let order = SharedPathMutation.active == .wrongByteOrder ? descriptor.byteOrder.opposite : descriptor.byteOrder
+            var segmentAddressings: [ComponentAddressing] = []
+            segmentAddressings.reserveCapacity(segmentCount)
+            for segment in 0..<segmentCount {
+                let component = segment / bytesPerSample
+                segmentAddressings.append(try ComponentAddressing(descriptor, component: component))
+            }
+            let immutableAddressings = segmentAddressings
+            let ranges = header.segmentRanges
+
+            try data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+                guard let srcRaw = bytes.baseAddress, let outRaw = out.baseAddress else {
+                    throw CodecError(.storageUnavailable, "Short destination borrow.")
+                }
+                let sendableSrc = UnsafeSendableRawPointer(baseAddress: srcRaw, count: bytes.count)
+                let sendableOut = UnsafeSendableMutableRawPointer(baseAddress: outRaw, count: out.count)
+
+                try BoundedParallelPool.forEach(jobCount: segmentCount, maxWorkers: maxWorkers) { segment in
+                    let lane = segment % bytesPerSample
+                    let byteLane = order == .bigEndian ? lane : bytesPerSample - 1 - lane
+                    let addressing = immutableAddressings[segment]
+                    let outBuf = UnsafeMutableRawBufferPointer(start: sendableOut.baseAddress, count: sendableOut.count)
+                    try SIMDPackBits.scatterSegment(
+                        srcBase: sendableSrc.baseAddress.assumingMemoryBound(to: UInt8.self),
+                        range: ranges[segment],
+                        out: outBuf,
+                        width: descriptor.width,
+                        height: descriptor.height,
+                        pixels: pixels,
+                        budget: budget,
+                        rowOffset0: addressing.offset,
+                        rowBytes: addressing.rowBytes,
+                        pixelStride: addressing.pixelStride,
+                        byteLane: byteLane,
+                        periodicCheck: { try gate.check() }
+                    )
+                }
+
+                if canonical && descriptor.meaningfulBits < descriptor.storageBits {
+                    let compCount = descriptor.components.count
+                    var compAddressings: [ComponentAddressing] = []
+                    compAddressings.reserveCapacity(compCount)
+                    for c in 0..<compCount {
+                        compAddressings.append(try ComponentAddressing(descriptor, component: c))
+                    }
+                    let immutableCompAddressings = compAddressings
+                    let normFlag = Atomic<Bool>(false)
+                    let stripsPerComp = (descriptor.height >= 16 && pixels >= 4096 && maxWorkers > 1)
+                        ? min(descriptor.height, max(1, (maxWorkers + compCount - 1) / compCount))
+                        : 1
+                    let totalJobs = compCount * stripsPerComp
+                    let rowsPerStrip = (descriptor.height + stripsPerComp - 1) / stripsPerComp
+
+                    try BoundedParallelPool.forEach(jobCount: totalJobs, maxWorkers: maxWorkers) { job in
+                        let comp = job / stripsPerComp
+                        let strip = job % stripsPerComp
+                        let yStart = strip * rowsPerStrip
+                        let yEnd = min(descriptor.height, yStart + rowsPerStrip)
+                        guard yStart < yEnd else { return }
+                        try gate.check()
+                        let outBuf = UnsafeMutableRawBufferPointer(start: sendableOut.baseAddress, count: sendableOut.count)
+                        let addr = immutableCompAddressings[comp]
+                        let didNormalize = try SIMDPackBits.normalizeComponentRows(
+                            out: outBuf,
+                            componentOffset: addr.offset,
+                            rowBytes: addr.rowBytes,
+                            pixelStride: addr.pixelStride,
+                            width: descriptor.width,
+                            yStart: yStart,
+                            yEnd: yEnd,
+                            storageBits: descriptor.storageBits,
+                            meaningfulBits: descriptor.meaningfulBits,
+                            sampleType: descriptor.sampleType,
+                            order: descriptor.byteOrder
+                        )
+                        if didNormalize {
+                            normFlag.store(true, ordering: .releasing)
+                        }
+                    }
+                    normalized = normalized || normFlag.load(ordering: .acquiring)
+                }
+            }
+            return
+        }
+
+        // Scalar reference path (`backend == .scalarCPU` or 1x1 singleton)
         try data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
             for (segment, range) in header.segmentRanges.enumerated() {
                 let component = segment / bytesPerSample, lane = segment % bytesPerSample
@@ -197,8 +338,6 @@ public enum DICOMRLEFrame {
                     }
                     cursor += payload; produced += count
                 }
-                // At most 64 trailing NOPs, followed by exactly the zero pad
-                // required for odd packet length. No arbitrary trailing payload.
                 var nops = 0
                 while cursor < range.upperBound, bytes[cursor] == 128 {
                     cursor += 1; nops += 1; operations += 1
@@ -220,7 +359,6 @@ public enum DICOMRLEFrame {
             try compatible(configured.imageDescriptor, image.descriptor)
         }
         let metadata = try image.metadata.validate(limits: options.resourceLimits, additionalBytes: image.descriptor.iccProfile?.count ?? 0, check: { try gate.check() })
-        // Conservative deterministic two-byte-repeat bound, matching PackBits R1.
         let rowBound = try checkedAdd(frame.width, (try checkedAdd(frame.width, 2)) / 3)
         let segmentBound = try checkedAdd(checkedMultiply(rowBound, frame.height), 1)
         let bound = try checkedAdd(64, checkedMultiply(segmentBound, frame.expectedSegmentCount))
@@ -230,9 +368,7 @@ public enum DICOMRLEFrame {
               try checkedAdd(checkedAdd(image.storage.byteCount, bound), metadata) <= options.resourceLimits.maximumMemoryBytes else {
             throw CodecError(.resourceLimitExceeded, "Encoding worst-case output exceeds admission limits.")
         }
-        let fallback = try validateExecutionPolicy(options.executionPolicy)
-        // A frame header cannot carry image metadata. Require the caller's
-        // external descriptor to retain required semantics, rather than drop it.
+        let resolved = try AccelerationRuntime.resolve(options.executionPolicy)
         if !image.metadata.entries.isEmpty || image.descriptor.iccProfile != nil {
             guard let external = configuration.codecOptions.frameDescriptor,
                   try external.metadata.equivalent(to: image.metadata, check: { try gate.check() }),
@@ -242,6 +378,21 @@ public enum DICOMRLEFrame {
         }
         options.progress?(try ProgressUpdate(phase: .inspecting, completedUnits: 0, totalUnits: frame.expectedSegmentCount))
         try gate.check()
+
+        let pixels = frame.width * frame.height
+        if resolved.backend == .accelerated && !(frame.width == 1 && frame.height == 1) {
+            return try encodeAccelerated(
+                image: image,
+                frame: frame,
+                rowBound: rowBound,
+                pixels: pixels,
+                options: options,
+                resolved: resolved,
+                gate: gate
+            )
+        }
+
+        // Scalar reference path (`resolved.backend == .scalarCPU` or 1x1 singleton)
         var out = Data(count: 64)
         out.reserveCapacity(bound)
         func setWord(_ value: Int, _ slot: Int) throws {
@@ -299,7 +450,177 @@ public enum DICOMRLEFrame {
         try gate.check()
         options.progress?(try ProgressUpdate(phase: .completed, completedUnits: frame.expectedSegmentCount, totalUnits: frame.expectedSegmentCount))
         try gate.check()
-        return EncodedImage(data: out, encoding: EncodingDescription(format: "dicom-rle", mode: .lossless), report: report(capacity: image.storage.byteCount, allocations: 0, fallback: fallback))
+        return EncodedImage(
+            data: out,
+            encoding: EncodingDescription(format: "dicom-rle", mode: .lossless),
+            report: report(backend: resolved.backend, capacity: image.storage.byteCount, allocations: 0, fallback: resolved.fallbackReason)
+        )
+    }
+
+    private static func encodeAccelerated(
+        image: Image,
+        frame: RLEFrameDescriptor,
+        rowBound: Int,
+        pixels: Int,
+        options: EncodeOptions,
+        resolved: AccelerationRuntime.ResolvedExecution,
+        gate: FrameGate
+    ) throws -> EncodedImage {
+        let segmentCount = frame.expectedSegmentCount
+        let maxWorkers = options.resourceLimits.maximumWorkers
+        var segmentAddressings: [ComponentAddressing] = []
+        segmentAddressings.reserveCapacity(segmentCount)
+        for segment in 0..<segmentCount {
+            let component = segment / frame.bytesPerSample
+            segmentAddressings.append(try ComponentAddressing(image.descriptor, component: component))
+        }
+        let immutableAddressings = segmentAddressings
+        let effectiveOrder = SharedPathMutation.active == .wrongByteOrder ? image.descriptor.byteOrder.opposite : image.descriptor.byteOrder
+
+        let stripsPerSegment = (frame.height >= 16 && pixels >= 4096 && maxWorkers > 1)
+            ? min(frame.height, max(1, (maxWorkers * 2 + segmentCount - 1) / segmentCount))
+            : 1
+        let totalJobs = segmentCount * stripsPerSegment
+        let rowsPerStrip = (frame.height + stripsPerSegment - 1) / stripsPerSegment
+        let chunksMutex = Mutex<[[UInt8]]>([[UInt8]](repeating: [], count: totalJobs))
+
+        try image.storage.withUnsafeBytes { bytes in
+            guard bytes.count == image.storage.byteCount,
+                  bytes.count >= image.descriptor.requiredByteCount,
+                  let rawBase = bytes.baseAddress else {
+                throw CodecError(.storageUnavailable, "Inconsistent source borrow.")
+            }
+            let sendableSrc = UnsafeSendableRawPointer(baseAddress: rawBase, count: bytes.count)
+
+            try BoundedParallelPool.forEach(jobCount: totalJobs, maxWorkers: maxWorkers) { job in
+                let segment = job / stripsPerSegment
+                let strip = job % stripsPerSegment
+                let yStart = strip * rowsPerStrip
+                let yEnd = min(frame.height, yStart + rowsPerStrip)
+                guard yStart < yEnd else { return }
+
+                let lane = segment % frame.bytesPerSample
+                let addr = immutableAddressings[segment]
+                let srcBuf = UnsafeRawBufferPointer(start: sendableSrc.baseAddress, count: sendableSrc.count)
+                let srcU8 = sendableSrc.baseAddress.assumingMemoryBound(to: UInt8.self)
+                let directContiguous8 = (frame.storageBits == 8 && frame.meaningfulBits == 8 && addr.pixelStride == 1)
+
+                let stripRows = yEnd - yStart
+                let maxStripBytes = max(16, rowBound * stripRows)
+                let stripOut = try [UInt8](unsafeUninitializedCapacity: maxStripBytes) { dstBuf, initializedCount in
+                    let dstBase = dstBuf.baseAddress!
+                    var writePos = 0
+                    if directContiguous8 {
+                        for y in yStart..<yEnd {
+                            if ((y - yStart) & 63) == 0 {
+                                try gate.check()
+                            }
+                            let rowStart = addr.offset + y * addr.rowBytes
+                            let nEncoded = try SIMDPackBits.encodeContiguousRow(
+                                src: srcU8.advanced(by: rowStart),
+                                count: frame.width,
+                                dst: dstBase.advanced(by: writePos),
+                                periodicCheck: { try gate.check() }
+                            )
+                            writePos += nEncoded
+                        }
+                    } else {
+                        var laneScratch = [UInt8](repeating: 0, count: frame.width)
+                        try laneScratch.withUnsafeMutableBufferPointer { laneBuf in
+                            let lanePtr = laneBuf.baseAddress!
+                            for y in yStart..<yEnd {
+                                if ((y - yStart) & 63) == 0 {
+                                    try gate.check()
+                                }
+                                let rowStart = addr.offset + y * addr.rowBytes
+                                try SIMDPackBits.gatherRowLane(
+                                    bytes: srcBuf,
+                                    rowOffset: rowStart,
+                                    width: frame.width,
+                                    pixelStride: addr.pixelStride,
+                                    storageBits: frame.storageBits,
+                                    meaningfulBits: frame.meaningfulBits,
+                                    sampleType: frame.sampleType,
+                                    effectiveOrder: effectiveOrder,
+                                    lane: lane,
+                                    laneBuffer: lanePtr
+                                )
+                                let nEncoded = try SIMDPackBits.encodeContiguousRow(
+                                    src: lanePtr,
+                                    count: frame.width,
+                                    dst: dstBase.advanced(by: writePos),
+                                    periodicCheck: { try gate.check() }
+                                )
+                                writePos += nEncoded
+                            }
+                        }
+                    }
+                    initializedCount = writePos
+                }
+
+                chunksMutex.withLock { $0[job] = stripOut }
+            }
+        }
+
+        let chunks = chunksMutex.withLock { $0 }
+        var segmentOffsets = [Int](repeating: 0, count: segmentCount)
+        var segmentRawLengths = [Int](repeating: 0, count: segmentCount)
+        var totalSize = 64
+        for segment in 0..<segmentCount {
+            segmentOffsets[segment] = totalSize
+            var segLen = 0
+            for strip in 0..<stripsPerSegment {
+                segLen += chunks[segment * stripsPerSegment + strip].count
+            }
+            segmentRawLengths[segment] = segLen
+            totalSize += segLen + (segLen % 2)
+        }
+        guard UInt64(totalSize) <= UInt64(UInt32.max),
+              totalSize <= options.resourceLimits.maximumCompressedBytes else {
+            throw CodecError(.resourceLimitExceeded, "Encoded RLE frame exceeds compressed limit.")
+        }
+
+        var out = Data(count: totalSize)
+        out.withUnsafeMutableBytes { rawOut in
+            let dst = rawOut.baseAddress!.assumingMemoryBound(to: UInt8.self)
+            func writeLE32(_ value: UInt32, slot: Int) {
+                let p = slot * 4
+                dst[p]     = UInt8(truncatingIfNeeded: value)
+                dst[p + 1] = UInt8(truncatingIfNeeded: value >> 8)
+                dst[p + 2] = UInt8(truncatingIfNeeded: value >> 16)
+                dst[p + 3] = UInt8(truncatingIfNeeded: value >> 24)
+            }
+            writeLE32(UInt32(segmentCount), slot: 0)
+            for segment in 0..<segmentCount {
+                writeLE32(UInt32(segmentOffsets[segment]), slot: segment + 1)
+                var writePos = segmentOffsets[segment]
+                for strip in 0..<stripsPerSegment {
+                    let chunk = chunks[segment * stripsPerSegment + strip]
+                    if !chunk.isEmpty {
+                        chunk.withUnsafeBufferPointer { buf in
+                            dst.advanced(by: writePos).update(from: buf.baseAddress!, count: buf.count)
+                        }
+                        writePos += chunk.count
+                    }
+                }
+                if segmentRawLengths[segment] % 2 != 0 {
+                    dst[writePos] = 0
+                }
+            }
+        }
+
+        for segment in 0..<segmentCount {
+            options.progress?(try ProgressUpdate(phase: .processing, completedUnits: segment + 1, totalUnits: segmentCount))
+            try gate.check()
+        }
+        options.progress?(try ProgressUpdate(phase: .completed, completedUnits: segmentCount, totalUnits: segmentCount))
+        try gate.check()
+
+        return EncodedImage(
+            data: out,
+            encoding: EncodingDescription(format: "dicom-rle", mode: .lossless),
+            report: report(backend: resolved.backend, capacity: image.storage.byteCount, allocations: 0, fallback: resolved.fallbackReason)
+        )
     }
 
     static func compatible(_ a: ImageDescriptor, _ b: ImageDescriptor) throws {

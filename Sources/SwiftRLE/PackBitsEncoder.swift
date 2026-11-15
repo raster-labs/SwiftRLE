@@ -24,17 +24,19 @@ public struct EncodedBytes: Sendable, Equatable {
 public struct PackBitsEncoder: Sendable {
     public let configuration: EncoderConfiguration
 
-    public static let capabilities = CodecCapabilities(
-        formats: [RLEProfile.packBits.rawValue],
-        compressionModes: [.lossless],
-        sampleTypes: [.unsignedInteger, .signedInteger],
-        meaningfulPrecision: 8...8,
-        layouts: ["packbits-bytes", "packbits-row-constrained"],
-        availableBackends: [.scalarCPU],
-        canInspect: false,
-        canEncode: true,
-        canDecode: false
-    )
+    public static var capabilities: CodecCapabilities {
+        CodecCapabilities(
+            formats: [RLEProfile.packBits.rawValue],
+            compressionModes: [.lossless],
+            sampleTypes: [.unsignedInteger, .signedInteger],
+            meaningfulPrecision: 8...8,
+            layouts: ["packbits-bytes", "packbits-row-constrained"],
+            availableBackends: AccelerationRuntime.availableBackends,
+            canInspect: false,
+            canEncode: true,
+            canDecode: false
+        )
+    }
 
     public var capabilities: CodecCapabilities { Self.capabilities }
 
@@ -97,7 +99,8 @@ public struct PackBitsEncoder: Sendable {
         let deadline = started.advanced(by: .nanoseconds(Int64(options.resourceLimits.deadlineSeconds * 1_000_000_000)))
 
         try Task.checkCancellation()
-        let fallbackReason = try validateExecutionPolicy(options.executionPolicy)
+        let resolved = try AccelerationRuntime.resolve(options.executionPolicy)
+        let fallbackReason = resolved.fallbackReason
 
         let inputCount = data.count
         guard inputCount <= options.resourceLimits.maximumDecodedBytes,
@@ -166,30 +169,68 @@ public struct PackBitsEncoder: Sendable {
                 return
             }
 
-            for rowIndex in 0..<effectiveRowCount {
-                try Task.checkCancellation()
-                if clock.now > deadline {
-                    throw CodecError(.resourceLimitExceeded, "PackBits encode operation exceeded deadline.")
+            if resolved.backend == .accelerated {
+                let rowBound = effectiveRowBytes + (effectiveRowBytes + 2) / 3
+                var rowScratch = [UInt8](repeating: 0, count: max(1, rowBound))
+                try rowScratch.withUnsafeMutableBufferPointer { scratchBuf in
+                    let dstPtr = scratchBuf.baseAddress!
+                    for rowIndex in 0..<effectiveRowCount {
+                        try Task.checkCancellation()
+                        if clock.now > deadline {
+                            throw CodecError(.resourceLimitExceeded, "PackBits encode operation exceeded deadline.")
+                        }
+                        let rowStart = rowIndex * effectiveRowBytes
+                        let encodedCount = try SIMDPackBits.encodeContiguousRow(
+                            src: base.advanced(by: rowStart),
+                            count: effectiveRowBytes,
+                            dst: dstPtr,
+                            periodicCheck: {
+                                try Task.checkCancellation()
+                                if clock.now > deadline {
+                                    throw CodecError(.resourceLimitExceeded, "PackBits encode operation exceeded deadline.")
+                                }
+                            }
+                        )
+                        let nextSize = try checkedAdd(out.count, encodedCount, category: .resourceLimitExceeded, message: "Encoded PackBits output overflowed.")
+                        guard nextSize <= maxCompressed else {
+                            throw CodecError(.resourceLimitExceeded, "Encoded PackBits output exceeds compressed byte limit.")
+                        }
+                        out.append(dstPtr, count: encodedCount)
+                        if effectiveRowCount <= 8 || (rowIndex + 1) % max(1, effectiveRowCount / 8) == 0 {
+                            options.progress?(try ProgressUpdate(
+                                phase: .processing,
+                                completedUnits: rowIndex + 1,
+                                totalUnits: totalUnits
+                            ))
+                        }
+                    }
                 }
+            } else {
+                for rowIndex in 0..<effectiveRowCount {
+                    try Task.checkCancellation()
+                    if clock.now > deadline {
+                        throw CodecError(.resourceLimitExceeded, "PackBits encode operation exceeded deadline.")
+                    }
 
-                let rowStart = rowIndex * effectiveRowBytes
-                let rowEnd = rowStart + effectiveRowBytes
-                try Self.encodeRow(
-                    base: base,
-                    from: rowStart,
-                    to: rowEnd,
-                    into: &out,
-                    maxCompressedBytes: maxCompressed,
-                    clock: clock,
-                    deadline: deadline
-                )
+                    let rowStart = rowIndex * effectiveRowBytes
+                    let rowEnd = rowStart + effectiveRowBytes
+                    try Self.encodeRow(
+                        base: base,
+                        from: rowStart,
+                        to: rowEnd,
+                        into: &out,
+                        maxCompressedBytes: maxCompressed,
+                        clock: clock,
+                        deadline: deadline
+                    )
 
-                if effectiveRowCount <= 8 || (rowIndex + 1) % max(1, effectiveRowCount / 8) == 0 {
-                    options.progress?(try ProgressUpdate(
-                        phase: .processing,
-                        completedUnits: rowIndex + 1,
-                        totalUnits: totalUnits
-                    ))
+                    if effectiveRowCount <= 8 || (rowIndex + 1) % max(1, effectiveRowCount / 8) == 0 {
+                        options.progress?(try ProgressUpdate(
+                            phase: .processing,
+                            completedUnits: rowIndex + 1,
+                            totalUnits: totalUnits
+                        ))
+                    }
                 }
             }
         }
@@ -205,7 +246,7 @@ public struct PackBitsEncoder: Sendable {
         }
         let elapsed = clock.now - started
         let report = OperationReport(
-            backend: .scalarCPU,
+            backend: resolved.backend,
             fallbackReason: fallbackReason,
             fidelity: .exactSamples,
             copyEvents: [],
