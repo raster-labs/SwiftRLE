@@ -1,5 +1,10 @@
 # Change log
 
+## 1.1.0 — SWAR/SIMD16 PackBits, bounded parallel row-band RLE, and zero-hop sync APIs (2026-11-16)
+
+- Added SWAR / `SIMD16<UInt8>` accelerated PackBits run/literal kernels, `BoundedParallelPool` deterministic multi-worker row-band DICOM RLE encode/decode scaling bounded by `ResourceLimits.maximumWorkers` with strict workspace accounting and cooperative task cancellation (`be49879`, `2cc7e06`), and zero-hop synchronous `encodeSynchronously` / `decodeSynchronously` execution paths (`Backend.accelerated` advertised under `ExecutionPolicy`).
+- Advanced `VERSION`, `swiftrle-cli` version/help literals (`Sources/SwiftRLECLI/CLIRunner.swift`), and `ManPages/swiftrle-cli.1` (`16 November 2026`) to `1.1.0`; see [1.1.0 release notes](Documentation/RELEASE_1_1_0.md). All seven pinned common contracts in [Documentation/COMMON_CONTRACT_SHA256.txt](Documentation/COMMON_CONTRACT_SHA256.txt), `Package.swift`, Apple OS `26.0` platform floors, DEC-11 waivers (`UNEXECUTED` / `WAIVED_BY_OWNER`), and published `v1.0.0`/`v1.0.1`/`v1.0.2` tags remain unchanged.
+
 ## 1.0.2 — MIT relicensing (`DEC-13`) and `DICOMKit` `D0`–`D4` completion release (2026-11-11)
 
 - Prepared on `release/1.0.2` from verified `main` `f81855537674ac5c3d64d6a984386bc54988b176` ([PR #10](https://github.com/raster-labs/SwiftRLE/pull/10)), setting `VERSION`, `swiftrle-cli` version/help literals (`Sources/SwiftRLECLI/CLIRunner.swift`) and `ManPages/swiftrle-cli.1` metadata/date (`11 November 2026`) to `1.0.2`; see [1.0.2 release notes](Documentation/RELEASE_1_0_2.md).

@@ -133,9 +133,14 @@ private func assertSamples(_ image:SwiftRLE.Image,_ bits:Int)throws { for y in 0
     let owner=try SharedOwner(byteCount:frame.imageDescriptor.requiredByteCount),view=RLEView(owner)
     let destination=try SwiftRLE.ImageDestination(descriptor:frame.imageDescriptor,storage:view)
     let decoder=try SwiftRLE.Decoder(configuration:.init(codecOptions:SwiftRLE.CodecOptions(frameDescriptor:frame)))
-    do { _=try await decoder.decode(source,into:destination,options:.init(executionPolicy:.required(.accelerated)));Issue.record("required backend accepted") } catch {}
-    let decoded=try await decoder.decode(source,into:destination,options:.init(executionPolicy:.preferred(.accelerated)))
-    #expect(decoded.report.fallbackReason != nil)
+    if SwiftRLE.Decoder.capabilities.availableBackends.contains(.accelerated) {
+        let decoded=try await decoder.decode(source,into:destination,options:.init(executionPolicy:.required(.accelerated)))
+        #expect(decoded.report.backend == .accelerated && decoded.report.fallbackReason == nil)
+    } else {
+        do { _=try await decoder.decode(source,into:destination,options:.init(executionPolicy:.required(.accelerated)));Issue.record("required backend accepted") } catch {}
+        let decoded=try await decoder.decode(source,into:destination,options:.init(executionPolicy:.preferred(.accelerated)))
+        #expect(decoded.report.fallbackReason != nil)
+    }
     let jdesc=try SwiftJLS.ImageDescriptor.greyscale16(width:7,height:3,meaningfulBits:12,rowBytes:20)
     let image=try SwiftJLS.Image(descriptor:jdesc,storage:JLSView(owner))
     do { _=try await SwiftJLS.Encoder().encode(image,options:.init(executionPolicy:.required(.accelerated)));Issue.record("peer required backend accepted") } catch {}
@@ -324,7 +329,8 @@ import Synchronization
     #expect(forward.report.normalizationStages.first?.sampleNormalizations == forward.report.rle.sampleNormalizations)
     #expect(forward.report.stages.last?.sampleNormalizations == nil)
     #expect(forward.report.fidelity == .exactSamples)
-    #expect(forward.report.stages.allSatisfy { $0.backend == .scalarCPU && $0.fidelity == .exactSamples })
+    let expectedRLEBackend: SharedStorage.Transcoder.Backend = SwiftRLE.Decoder.capabilities.availableBackends.contains(.accelerated) ? .accelerated : .scalarCPU
+    #expect(forward.report.stages.map(\.backend) == [expectedRLEBackend, .scalarCPU] && forward.report.stages.allSatisfy { $0.fidelity == .exactSamples })
     #expect(forward.report.sharedPixelAllocationCount == 1 && forward.report.sharedPixelCapacity == 20)
     #expect(forward.report.codecPixelAllocationCount == 0 && forward.report.totalPixelAllocationCount == 1)
     #expect(forward.report.measuredPeakPixelBytes == 20)

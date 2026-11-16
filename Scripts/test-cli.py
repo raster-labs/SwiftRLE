@@ -23,7 +23,9 @@ with tempfile.TemporaryDirectory(prefix='SwiftRLE é ') as temp:
  report=run(['decode','-i','-','--input-format','packbits','--decoded-bytes','4096','--output-format','raw','-o','-','--json','-vvvvv'],data=encoded)
  assert report.stdout==raw and b'"success":true' in report.stderr and str(d).encode() not in report.stderr
  run(['decode','-i','-','--input-format','packbits','--decoded-bytes','4','--output-format','raw','-o','-'],3,b'\x02A')
- for extra,code in [(['--mode','lossy'],4),(['--backend','required-accelerated'],4),(['--max-memory','100'],5),(['--quality','10'],2)]:run(enc+extra,code)
+ has_acc='accelerated' in json.loads(run(['capabilities']).stdout)['backends']
+ for extra,code in [(['--mode','lossy'],4),(['--backend','required-accelerated','--overwrite'] if has_acc else ['--backend','required-accelerated'],0 if has_acc else 4),(['--max-memory','100'],5),(['--quality','10'],2)]:run(enc+extra,code)
+ if has_acc:assert (d/'payload.packbits').read_bytes()==encoded
  run(['encode','-i','missing','--input-format','rle','--output-format','packbits','-o','bad'],4)
  frameflags=['--width','5','--height','3','--storage-bits','16','--meaningful-bits','16','--sample-type','unsigned','--components','1','--colour','greyscale','--byte-order','little','--planar-configuration','0']
  samples=[0,65535,257,8191,43,9,31999,49152,17,1,256,4095,60000,81,512]
