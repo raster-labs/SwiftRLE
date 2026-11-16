@@ -457,9 +457,7 @@ internal enum SIMDPackBits {
                     if newVec != oldVec {
                         anyNormalized = true
                         let storeVec = needSwap ? ((newVec &<< 8) | (newVec &>> 8)) : newVec
-                        withUnsafeBytes(of: storeVec) { srcBytes in
-                            rawBase.advanced(by: bytePos).copyMemory(from: srcBytes.baseAddress!, byteCount: 32)
-                        }
+                        rawBase.storeBytes(of: storeVec, toByteOffset: bytePos, as: SIMD16<UInt16>.self)
                     }
                     x += 16
                 }
@@ -508,5 +506,283 @@ internal enum SIMDPackBits {
             }
         }
         return anyNormalized
+    }
+
+    /// Pre-scans and validates a DICOM RLE segment's packet headers, returning the exact
+    /// compressed byte subrange for each horizontal row band `[s * rowsPerStrip, min(height, (s + 1) * rowsPerStrip))`.
+    internal static func indexSegmentStrips(
+        srcBase: UnsafePointer<UInt8>,
+        range: Range<Int>,
+        width: Int,
+        height: Int,
+        pixels: Int,
+        budget: Int,
+        rowsPerStrip: Int,
+        stripCount: Int,
+        periodicCheck: () throws -> Void
+    ) throws -> [Range<Int>] {
+        var stripStarts = [Int](repeating: range.lowerBound, count: stripCount + 1)
+        var cursor = range.lowerBound
+        var produced = 0
+        var operations = 0
+        var y = 0
+        var xInRow = 0
+        var nextStripIndex = 1
+        var nextStripRow = rowsPerStrip
+
+        try periodicCheck()
+
+        while produced < pixels {
+            if (operations & 2047) == 0 && operations > 0 {
+                try periodicCheck()
+            }
+            guard cursor < range.upperBound else {
+                throw CodecError(.malformedInput, "Truncated segment.")
+            }
+            operations += 1
+            guard operations <= budget else {
+                throw CodecError(.resourceLimitExceeded, "Segment packet budget exceeded.")
+            }
+            let control = Int(Int8(bitPattern: srcBase[cursor]))
+            cursor += 1
+            if control == -128 { continue }
+
+            let count = control >= 0 ? control + 1 : 1 - control
+            guard count <= width - xInRow, count <= pixels - produced else {
+                throw CodecError(.malformedInput, "Packet crosses row or output extent.")
+            }
+            let payload = control >= 0 ? count : 1
+            guard payload <= range.upperBound - cursor else {
+                throw CodecError(.malformedInput, "Truncated packet payload.")
+            }
+
+            cursor += payload
+            produced += count
+            xInRow += count
+            if xInRow == width {
+                xInRow = 0
+                y += 1
+                while nextStripIndex < stripCount && y >= nextStripRow {
+                    stripStarts[nextStripIndex] = cursor
+                    nextStripIndex += 1
+                    nextStripRow = nextStripIndex * rowsPerStrip
+                }
+            }
+        }
+        while nextStripIndex <= stripCount {
+            stripStarts[nextStripIndex] = cursor
+            nextStripIndex += 1
+        }
+
+        var nops = 0
+        while cursor < range.upperBound, srcBase[cursor] == 128 {
+            cursor += 1
+            nops += 1
+            operations += 1
+            guard nops <= 64, operations <= budget else {
+                throw CodecError(.resourceLimitExceeded, "Trailing NOP budget exceeded.")
+            }
+            try periodicCheck()
+        }
+        let padding = (cursor - range.lowerBound) % 2
+        guard range.upperBound - cursor == padding,
+              padding == 0 || srcBase[cursor] == 0 else {
+            throw CodecError(.malformedInput, "Unexplained trailing segment bytes or nonzero padding.")
+        }
+
+        var subranges = [Range<Int>]()
+        subranges.reserveCapacity(stripCount)
+        for s in 0..<stripCount {
+            subranges.append(stripStarts[s]..<stripStarts[s + 1])
+        }
+        return subranges
+    }
+
+    /// Unpacks `expectedBytes` from a pre-validated PackBits segment cursor contiguously into `dst`,
+    /// advancing `cursor` past the consumed packets.
+    @inline(__always)
+    internal static func unpackContiguousValidated(
+        srcBase: UnsafePointer<UInt8>,
+        cursor: inout Int,
+        upperBound: Int,
+        expectedBytes: Int,
+        dst: UnsafeMutablePointer<UInt8>
+    ) throws {
+        var written = 0
+        while written < expectedBytes {
+            guard cursor < upperBound else {
+                throw CodecError(.malformedInput, "Truncated segment.")
+            }
+            let control = Int(Int8(bitPattern: srcBase[cursor]))
+            cursor += 1
+            if control == -128 { continue }
+            let count = control >= 0 ? control + 1 : 1 - control
+            guard written + count <= expectedBytes else {
+                throw CodecError(.malformedInput, "Packet crosses row or output extent.")
+            }
+            if control >= 0 {
+                dst.advanced(by: written).update(from: srcBase.advanced(by: cursor), count: count)
+                cursor += count
+            } else {
+                dst.advanced(by: written).update(repeating: srcBase[cursor], count: count)
+                cursor += 1
+            }
+            written += count
+        }
+    }
+
+    /// Zips two contiguous byte planes (`evenPlane` -> byte offset 0, `oddPlane` -> byte offset 1)
+    /// into a contiguous 2-byte-per-pixel row in `outRaw` at `rowByteOffset`.
+    @inline(__always)
+    internal static func zipBytesInto16BitRow(
+        evenPlane: UnsafePointer<UInt8>,
+        oddPlane: UnsafePointer<UInt8>,
+        width: Int,
+        outRaw: UnsafeMutableRawPointer,
+        rowByteOffset: Int
+    ) {
+        let evenRaw = UnsafeRawPointer(evenPlane)
+        let oddRaw = UnsafeRawPointer(oddPlane)
+        var x = 0
+        #if _endian(little)
+        while x + 16 <= width {
+            let lo8 = evenRaw.loadUnaligned(fromByteOffset: x, as: SIMD16<UInt8>.self)
+            let hi8 = oddRaw.loadUnaligned(fromByteOffset: x, as: SIMD16<UInt8>.self)
+            let word16 = SIMD16<UInt16>(truncatingIfNeeded: lo8) | (SIMD16<UInt16>(truncatingIfNeeded: hi8) &<< 8)
+            outRaw.storeBytes(of: word16, toByteOffset: rowByteOffset + x * 2, as: SIMD16<UInt16>.self)
+            x += 16
+        }
+        #endif
+        let outU8 = outRaw.advanced(by: rowByteOffset).assumingMemoryBound(to: UInt8.self)
+        while x < width {
+            outU8[x * 2] = evenPlane[x]
+            outU8[x * 2 + 1] = oddPlane[x]
+            x += 1
+        }
+    }
+
+    /// Scatters a pre-validated segment byte subrange into rows `[yStart, yEnd)` of `out`.
+    internal static func scatterValidatedRowBand(
+        srcBase: UnsafePointer<UInt8>,
+        subrange: Range<Int>,
+        out: UnsafeMutableRawBufferPointer,
+        width: Int,
+        yStart: Int,
+        yEnd: Int,
+        rowOffset0: Int,
+        rowBytes: Int,
+        pixelStride: Int,
+        byteLane: Int,
+        periodicCheck: () throws -> Void
+    ) throws {
+        guard yStart < yEnd else { return }
+        guard let outRaw = out.baseAddress else {
+            throw CodecError(.storageUnavailable, "Short destination borrow.")
+        }
+        let outBase = outRaw.assumingMemoryBound(to: UInt8.self)
+        let bandPixels = (yEnd - yStart) * width
+
+        var cursor = subrange.lowerBound
+        var produced = 0
+        var ops = 0
+        var y = yStart
+        var xInRow = 0
+        var currentRowOffset = rowOffset0 + yStart * rowBytes
+
+        while produced < bandPixels {
+            if (ops & 1023) == 0 && ops > 0 {
+                try periodicCheck()
+            }
+            ops += 1
+            guard cursor < subrange.upperBound else {
+                throw CodecError(.malformedInput, "Truncated segment.")
+            }
+            let control = Int(Int8(bitPattern: srcBase[cursor]))
+            cursor += 1
+            if control == -128 { continue }
+
+            let count = control >= 0 ? control + 1 : 1 - control
+            let payload = control >= 0 ? count : 1
+            let dstStart = currentRowOffset + xInRow * pixelStride + byteLane
+
+            if pixelStride == 1 {
+                let dstPtr = outBase.advanced(by: dstStart)
+                if control >= 0 {
+                    dstPtr.update(from: srcBase.advanced(by: cursor), count: count)
+                } else {
+                    dstPtr.update(repeating: srcBase[cursor], count: count)
+                }
+            } else if pixelStride == 3 {
+                var dstPtr = outBase.advanced(by: dstStart)
+                if control >= 0 {
+                    var srcPtr = srcBase.advanced(by: cursor)
+                    var n = count
+                    while n >= 8 {
+                        dstPtr[0]  = srcPtr[0]
+                        dstPtr[3]  = srcPtr[1]
+                        dstPtr[6]  = srcPtr[2]
+                        dstPtr[9]  = srcPtr[3]
+                        dstPtr[12] = srcPtr[4]
+                        dstPtr[15] = srcPtr[5]
+                        dstPtr[18] = srcPtr[6]
+                        dstPtr[21] = srcPtr[7]
+                        dstPtr = dstPtr.advanced(by: 24)
+                        srcPtr = srcPtr.advanced(by: 8)
+                        n -= 8
+                    }
+                    while n > 0 {
+                        dstPtr[0] = srcPtr[0]
+                        dstPtr = dstPtr.advanced(by: 3)
+                        srcPtr = srcPtr.advanced(by: 1)
+                        n -= 1
+                    }
+                } else {
+                    let v = srcBase[cursor]
+                    var n = count
+                    while n >= 8 {
+                        dstPtr[0]  = v
+                        dstPtr[3]  = v
+                        dstPtr[6]  = v
+                        dstPtr[9]  = v
+                        dstPtr[12] = v
+                        dstPtr[15] = v
+                        dstPtr[18] = v
+                        dstPtr[21] = v
+                        dstPtr = dstPtr.advanced(by: 24)
+                        n -= 8
+                    }
+                    while n > 0 {
+                        dstPtr[0] = v
+                        dstPtr = dstPtr.advanced(by: 3)
+                        n -= 1
+                    }
+                }
+            } else {
+                var dstIdx = dstStart
+                if control >= 0 {
+                    for n in 0..<count {
+                        outBase[dstIdx] = srcBase[cursor + n]
+                        if n + 1 < count { dstIdx += pixelStride }
+                    }
+                } else {
+                    let v = srcBase[cursor]
+                    for n in 0..<count {
+                        outBase[dstIdx] = v
+                        if n + 1 < count { dstIdx += pixelStride }
+                    }
+                }
+            }
+
+            cursor += payload
+            produced += count
+            xInRow += count
+            if xInRow == width {
+                xInRow = 0
+                y += 1
+                if y < yEnd {
+                    currentRowOffset += rowBytes
+                }
+            }
+        }
     }
 }

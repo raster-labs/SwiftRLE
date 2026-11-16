@@ -63,14 +63,53 @@ internal final class FirstErrorBox: Sendable {
     }
 }
 
+/// Cooperative cancellation flag shared with GCD workers spawned inside an async `Task`.
+internal final class OperationCancellationToken: Sendable {
+    private let flag = Atomic<Bool>(false)
+
+    internal init() {}
+
+    @inline(__always)
+    internal var isCancelled: Bool {
+        flag.load(ordering: .relaxed)
+    }
+
+    internal func cancel() {
+        flag.store(true, ordering: .releasing)
+    }
+}
+
 /// Bounded work-stealing parallel executor honoring `ResourceLimits.maximumWorkers`.
 internal enum BoundedParallelPool {
     @TaskLocal internal static var isInsideParallelRegion: Bool = false
+    @TaskLocal internal static var activeCancellation: OperationCancellationToken? = nil
+
+    internal static func withTaskCancellationBridge<T: Sendable>(
+        _ body: @Sendable () throws -> T
+    ) async throws -> T {
+        let token = OperationCancellationToken()
+        return try await withTaskCancellationHandler {
+            try $activeCancellation.withValue(token) {
+                try body()
+            }
+        } onCancel: {
+            token.cancel()
+        }
+    }
+
+    @inline(__always)
+    internal static func checkCancellation() throws {
+        try Task.checkCancellation()
+        if activeCancellation?.isCancelled == true {
+            throw CancellationError()
+        }
+    }
 
     private struct TaskLocalSnapshot: @unchecked Sendable {
         let forceUnavailable: Bool
         let storageRecorder: StorageTelemetry.Recorder?
         let sharedMutation: SharedPathMutation
+        let cancellation: OperationCancellationToken?
         let hasOverrides: Bool
 
         @inline(__always)
@@ -78,7 +117,8 @@ internal enum BoundedParallelPool {
             self.forceUnavailable = AccelerationRuntime.forceUnavailable
             self.storageRecorder = StorageTelemetry.recorder
             self.sharedMutation = SharedPathMutation.active
-            self.hasOverrides = forceUnavailable || storageRecorder != nil || sharedMutation != .none
+            self.cancellation = BoundedParallelPool.activeCancellation
+            self.hasOverrides = forceUnavailable || storageRecorder != nil || sharedMutation != .none || cancellation != nil
         }
 
         @inline(__always)
@@ -88,9 +128,11 @@ internal enum BoundedParallelPool {
                 return
             }
             BoundedParallelPool.$isInsideParallelRegion.withValue(true) {
-                AccelerationRuntime.$forceUnavailable.withValue(forceUnavailable) {
-                    StorageTelemetry.$recorder.withValue(storageRecorder) {
-                        SharedPathMutation.$active.withValue(sharedMutation, operation: body)
+                BoundedParallelPool.$activeCancellation.withValue(cancellation) {
+                    AccelerationRuntime.$forceUnavailable.withValue(forceUnavailable) {
+                        StorageTelemetry.$recorder.withValue(storageRecorder) {
+                            SharedPathMutation.$active.withValue(sharedMutation, operation: body)
+                        }
                     }
                 }
             }
@@ -125,12 +167,13 @@ internal enum BoundedParallelPool {
         let workers = effectiveWorkers(requested: maxWorkers, jobCount: jobCount)
         if workers <= 1 {
             for index in 0..<jobCount {
+                try checkCancellation()
                 try body(index, 0)
             }
             return
         }
 
-        try Task.checkCancellation()
+        try checkCancellation()
         let snapshot = TaskLocalSnapshot()
         let cursor = Atomic<Int>(0)
         let errorBox = FirstErrorBox()
@@ -140,7 +183,9 @@ internal enum BoundedParallelPool {
             if errorBox.hasError { return }
             snapshot.run {
                 while !errorBox.hasError {
-                    if Task.isCancelled || cancelledFlag.load(ordering: .relaxed) {
+                    if Task.isCancelled
+                        || snapshot.cancellation?.isCancelled == true
+                        || cancelledFlag.load(ordering: .relaxed) {
                         cancelledFlag.store(true, ordering: .releasing)
                         errorBox.storeIfFirst(CancellationError())
                         break
@@ -161,6 +206,6 @@ internal enum BoundedParallelPool {
         }
 
         try errorBox.rethrowIfNeeded()
-        try Task.checkCancellation()
+        try checkCancellation()
     }
 }

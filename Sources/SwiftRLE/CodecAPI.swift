@@ -178,7 +178,9 @@ public struct Encoder: Sendable {
 
     /// `@concurrent` explicitly selects the generic executor (available since Swift 6.2).
     @concurrent public func encode(_ image: Image, options: EncodeOptions = .init()) async throws -> EncodedImage {
-        try encodeSynchronously(image, options: options)
+        try await BoundedParallelPool.withTaskCancellationBridge {
+            try encodeSynchronously(image, options: options)
+        }
     }
 
     /// Explicit synchronous convenience wrapper (API-03) calling the same validated kernel.
@@ -263,7 +265,9 @@ public struct Decoder: Sendable {
     }
 
     @concurrent public func decode(_ data: Data, options: DecodeOptions = .init()) async throws -> DecodedImage {
-        try decodeSynchronously(data, options: options)
+        try await BoundedParallelPool.withTaskCancellationBridge {
+            try decodeSynchronously(data, options: options)
+        }
     }
 
     @concurrent public func decode(
@@ -271,7 +275,9 @@ public struct Decoder: Sendable {
         into destination: ImageDestination,
         options: DecodeOptions = .init()
     ) async throws -> DecodedImage {
-        try decodeSynchronously(data, into: destination, options: options)
+        try await BoundedParallelPool.withTaskCancellationBridge {
+            try decodeSynchronously(data, into: destination, options: options)
+        }
     }
 
     /// Explicit synchronous convenience wrapper (API-03) calling the same validated kernel.

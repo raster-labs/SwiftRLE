@@ -111,14 +111,21 @@ public enum DICOMRLEFrame {
         }
     }
 
-    static func report(backend: Backend = .scalarCPU, capacity: Int, allocations: Int, fallback: String?, normalized: Bool = false) -> OperationReport {
+    static func report(
+        backend: Backend = .scalarCPU,
+        capacity: Int,
+        allocations: Int,
+        workspaceBytes: Int = 0,
+        fallback: String?,
+        normalized: Bool = false
+    ) -> OperationReport {
         OperationReport(
             backend: backend,
             fallbackReason: fallback,
             fidelity: .exactSamples,
             pixelAllocationCount: allocations,
             peakPixelBytes: capacity,
-            peakWorkspaceBytes: 0,
+            peakWorkspaceBytes: workspaceBytes,
             sampleNormalizations: normalized ? ["Unused allocated bits masked/sign-extended in final output."] : []
         )
     }
@@ -227,70 +234,206 @@ public enum DICOMRLEFrame {
                 }
                 let sendableSrc = UnsafeSendableRawPointer(baseAddress: srcRaw, count: bytes.count)
                 let sendableOut = UnsafeSendableMutableRawPointer(baseAddress: outRaw, count: out.count)
-
-                try BoundedParallelPool.forEach(jobCount: segmentCount, maxWorkers: maxWorkers) { segment in
-                    let lane = segment % bytesPerSample
-                    let byteLane = order == .bigEndian ? lane : bytesPerSample - 1 - lane
-                    let addressing = immutableAddressings[segment]
-                    let outBuf = UnsafeMutableRawBufferPointer(start: sendableOut.baseAddress, count: sendableOut.count)
-                    try SIMDPackBits.scatterSegment(
-                        srcBase: sendableSrc.baseAddress.assumingMemoryBound(to: UInt8.self),
-                        range: ranges[segment],
-                        out: outBuf,
-                        width: descriptor.width,
-                        height: descriptor.height,
-                        pixels: pixels,
-                        budget: budget,
-                        rowOffset0: addressing.offset,
-                        rowBytes: addressing.rowBytes,
-                        pixelStride: addressing.pixelStride,
-                        byteLane: byteLane,
-                        periodicCheck: { try gate.check() }
-                    )
+                let compCount = descriptor.components.count
+                var compAddressings: [ComponentAddressing] = []
+                compAddressings.reserveCapacity(compCount)
+                for c in 0..<compCount {
+                    compAddressings.append(try ComponentAddressing(descriptor, component: c))
                 }
+                let immutableCompAddressings = compAddressings
+                let needNormalize = canonical && descriptor.meaningfulBits < descriptor.storageBits
 
-                if canonical && descriptor.meaningfulBits < descriptor.storageBits {
-                    let compCount = descriptor.components.count
-                    var compAddressings: [ComponentAddressing] = []
-                    compAddressings.reserveCapacity(compCount)
-                    for c in 0..<compCount {
-                        compAddressings.append(try ComponentAddressing(descriptor, component: c))
-                    }
-                    let immutableCompAddressings = compAddressings
-                    let normFlag = Atomic<Bool>(false)
-                    let stripsPerComp = (descriptor.height >= 16 && pixels >= 4096 && maxWorkers > 1)
-                        ? min(descriptor.height, max(1, (maxWorkers + compCount - 1) / compCount))
+                let isFastMono16 = (segmentCount == 2
+                    && bytesPerSample == 2
+                    && compCount == 1
+                    && immutableAddressings[0].pixelStride == 2
+                    && descriptor.height >= 16)
+                let useRowBands = isFastMono16 || (maxWorkers > 1 && descriptor.height >= 32 && pixels >= 16384)
+
+                if useRowBands {
+                    let stripCount = maxWorkers > 1
+                        ? min(descriptor.height, max(2, maxWorkers))
                         : 1
-                    let totalJobs = compCount * stripsPerComp
-                    let rowsPerStrip = (descriptor.height + stripsPerComp - 1) / stripsPerComp
+                    let rowsPerStrip = (descriptor.height + stripCount - 1) / stripCount
+                    let segmentStripsMutex = Mutex<[[Range<Int>]]>([[Range<Int>]](repeating: [], count: segmentCount))
 
-                    try BoundedParallelPool.forEach(jobCount: totalJobs, maxWorkers: maxWorkers) { job in
-                        let comp = job / stripsPerComp
-                        let strip = job % stripsPerComp
+                    try BoundedParallelPool.forEach(jobCount: segmentCount, maxWorkers: maxWorkers) { segment in
+                        let subranges = try SIMDPackBits.indexSegmentStrips(
+                            srcBase: sendableSrc.baseAddress.assumingMemoryBound(to: UInt8.self),
+                            range: ranges[segment],
+                            width: descriptor.width,
+                            height: descriptor.height,
+                            pixels: pixels,
+                            budget: budget,
+                            rowsPerStrip: rowsPerStrip,
+                            stripCount: stripCount,
+                            periodicCheck: { try gate.check() }
+                        )
+                        segmentStripsMutex.withLock { $0[segment] = subranges }
+                    }
+                    let segmentStrips = segmentStripsMutex.withLock { $0 }
+                    let normFlag = Atomic<Bool>(false)
+
+                    try BoundedParallelPool.forEach(jobCount: stripCount, maxWorkers: maxWorkers) { strip in
                         let yStart = strip * rowsPerStrip
                         let yEnd = min(descriptor.height, yStart + rowsPerStrip)
                         guard yStart < yEnd else { return }
                         try gate.check()
+
+                        let srcBase = sendableSrc.baseAddress.assumingMemoryBound(to: UInt8.self)
                         let outBuf = UnsafeMutableRawBufferPointer(start: sendableOut.baseAddress, count: sendableOut.count)
-                        let addr = immutableCompAddressings[comp]
-                        let didNormalize = try SIMDPackBits.normalizeComponentRows(
-                            out: outBuf,
-                            componentOffset: addr.offset,
-                            rowBytes: addr.rowBytes,
-                            pixelStride: addr.pixelStride,
-                            width: descriptor.width,
-                            yStart: yStart,
-                            yEnd: yEnd,
-                            storageBits: descriptor.storageBits,
-                            meaningfulBits: descriptor.meaningfulBits,
-                            sampleType: descriptor.sampleType,
-                            order: descriptor.byteOrder
-                        )
-                        if didNormalize {
-                            normFlag.store(true, ordering: .releasing)
+
+                        if isFastMono16 {
+                            let addr = immutableAddressings[0]
+                            let lane0Byte = order == .bigEndian ? 0 : 1
+                            var cur0 = segmentStrips[0][strip].lowerBound
+                            let end0 = segmentStrips[0][strip].upperBound
+                            var cur1 = segmentStrips[1][strip].lowerBound
+                            let end1 = segmentStrips[1][strip].upperBound
+                            let tileRowsMax = min(16, yEnd - yStart)
+                            let tilePlaneCap = max(16, tileRowsMax * descriptor.width)
+
+                            try withUnsafeTemporaryAllocation(of: UInt8.self, capacity: tilePlaneCap * 2) { tmp in
+                                let plane0 = tmp.baseAddress!
+                                let plane1 = plane0.advanced(by: tilePlaneCap)
+                                var y = yStart
+                                while y < yEnd {
+                                    try gate.check()
+                                    let rowsNow = min(tileRowsMax, yEnd - y)
+                                    let blockPixels = rowsNow * descriptor.width
+                                    try SIMDPackBits.unpackContiguousValidated(
+                                        srcBase: srcBase,
+                                        cursor: &cur0,
+                                        upperBound: end0,
+                                        expectedBytes: blockPixels,
+                                        dst: plane0
+                                    )
+                                    try SIMDPackBits.unpackContiguousValidated(
+                                        srcBase: srcBase,
+                                        cursor: &cur1,
+                                        upperBound: end1,
+                                        expectedBytes: blockPixels,
+                                        dst: plane1
+                                    )
+                                    let evenBase = lane0Byte == 0 ? plane0 : plane1
+                                    let oddBase = lane0Byte == 0 ? plane1 : plane0
+                                    for r in 0..<rowsNow {
+                                        let rowByteOffset = addr.offset + (y + r) * addr.rowBytes
+                                        SIMDPackBits.zipBytesInto16BitRow(
+                                            evenPlane: UnsafePointer(evenBase.advanced(by: r * descriptor.width)),
+                                            oddPlane: UnsafePointer(oddBase.advanced(by: r * descriptor.width)),
+                                            width: descriptor.width,
+                                            outRaw: sendableOut.baseAddress,
+                                            rowByteOffset: rowByteOffset
+                                        )
+                                    }
+                                    y += rowsNow
+                                }
+                            }
+                        } else {
+                            for segment in 0..<segmentCount {
+                                let lane = segment % bytesPerSample
+                                let byteLane = order == .bigEndian ? lane : bytesPerSample - 1 - lane
+                                let addressing = immutableAddressings[segment]
+                                try SIMDPackBits.scatterValidatedRowBand(
+                                    srcBase: srcBase,
+                                    subrange: segmentStrips[segment][strip],
+                                    out: outBuf,
+                                    width: descriptor.width,
+                                    yStart: yStart,
+                                    yEnd: yEnd,
+                                    rowOffset0: addressing.offset,
+                                    rowBytes: addressing.rowBytes,
+                                    pixelStride: addressing.pixelStride,
+                                    byteLane: byteLane,
+                                    periodicCheck: { try gate.check() }
+                                )
+                            }
+                        }
+
+                        if needNormalize {
+                            for comp in 0..<compCount {
+                                let addr = immutableCompAddressings[comp]
+                                let didNormalize = try SIMDPackBits.normalizeComponentRows(
+                                    out: outBuf,
+                                    componentOffset: addr.offset,
+                                    rowBytes: addr.rowBytes,
+                                    pixelStride: addr.pixelStride,
+                                    width: descriptor.width,
+                                    yStart: yStart,
+                                    yEnd: yEnd,
+                                    storageBits: descriptor.storageBits,
+                                    meaningfulBits: descriptor.meaningfulBits,
+                                    sampleType: descriptor.sampleType,
+                                    order: descriptor.byteOrder
+                                )
+                                if didNormalize {
+                                    normFlag.store(true, ordering: .releasing)
+                                }
+                            }
                         }
                     }
-                    normalized = normalized || normFlag.load(ordering: .acquiring)
+                    if needNormalize {
+                        normalized = normalized || normFlag.load(ordering: .acquiring)
+                    }
+                } else {
+                    try BoundedParallelPool.forEach(jobCount: segmentCount, maxWorkers: maxWorkers) { segment in
+                        let lane = segment % bytesPerSample
+                        let byteLane = order == .bigEndian ? lane : bytesPerSample - 1 - lane
+                        let addressing = immutableAddressings[segment]
+                        let outBuf = UnsafeMutableRawBufferPointer(start: sendableOut.baseAddress, count: sendableOut.count)
+                        try SIMDPackBits.scatterSegment(
+                            srcBase: sendableSrc.baseAddress.assumingMemoryBound(to: UInt8.self),
+                            range: ranges[segment],
+                            out: outBuf,
+                            width: descriptor.width,
+                            height: descriptor.height,
+                            pixels: pixels,
+                            budget: budget,
+                            rowOffset0: addressing.offset,
+                            rowBytes: addressing.rowBytes,
+                            pixelStride: addressing.pixelStride,
+                            byteLane: byteLane,
+                            periodicCheck: { try gate.check() }
+                        )
+                    }
+
+                    if needNormalize {
+                        let normFlag = Atomic<Bool>(false)
+                        let stripsPerComp = (descriptor.height >= 16 && pixels >= 4096 && maxWorkers > 1)
+                            ? min(descriptor.height, max(1, (maxWorkers + compCount - 1) / compCount))
+                            : 1
+                        let totalJobs = compCount * stripsPerComp
+                        let rowsPerStrip = (descriptor.height + stripsPerComp - 1) / stripsPerComp
+
+                        try BoundedParallelPool.forEach(jobCount: totalJobs, maxWorkers: maxWorkers) { job in
+                            let comp = job / stripsPerComp
+                            let strip = job % stripsPerComp
+                            let yStart = strip * rowsPerStrip
+                            let yEnd = min(descriptor.height, yStart + rowsPerStrip)
+                            guard yStart < yEnd else { return }
+                            try gate.check()
+                            let outBuf = UnsafeMutableRawBufferPointer(start: sendableOut.baseAddress, count: sendableOut.count)
+                            let addr = immutableCompAddressings[comp]
+                            let didNormalize = try SIMDPackBits.normalizeComponentRows(
+                                out: outBuf,
+                                componentOffset: addr.offset,
+                                rowBytes: addr.rowBytes,
+                                pixelStride: addr.pixelStride,
+                                width: descriptor.width,
+                                yStart: yStart,
+                                yEnd: yEnd,
+                                storageBits: descriptor.storageBits,
+                                meaningfulBits: descriptor.meaningfulBits,
+                                sampleType: descriptor.sampleType,
+                                order: descriptor.byteOrder
+                            )
+                            if didNormalize {
+                                normFlag.store(true, ordering: .releasing)
+                            }
+                        }
+                        normalized = normalized || normFlag.load(ordering: .acquiring)
+                    }
                 }
             }
             return
@@ -385,6 +528,8 @@ public enum DICOMRLEFrame {
                 image: image,
                 frame: frame,
                 rowBound: rowBound,
+                bound: bound,
+                metadataBytes: metadata,
                 pixels: pixels,
                 options: options,
                 resolved: resolved,
@@ -461,6 +606,8 @@ public enum DICOMRLEFrame {
         image: Image,
         frame: RLEFrameDescriptor,
         rowBound: Int,
+        bound: Int,
+        metadataBytes: Int,
         pixels: Int,
         options: EncodeOptions,
         resolved: AccelerationRuntime.ResolvedExecution,
@@ -481,6 +628,98 @@ public enum DICOMRLEFrame {
             ? min(frame.height, max(1, (maxWorkers * 2 + segmentCount - 1) / segmentCount))
             : 1
         let totalJobs = segmentCount * stripsPerSegment
+        let maxRowBytes = max(16, rowBound)
+        let admittedWithoutStaging = image.storage.byteCount + bound + metadataBytes
+        let canStageChunks = maxWorkers > 1
+            && totalJobs > 1
+            && bound <= options.resourceLimits.maximumWorkspaceBytes
+            && (options.resourceLimits.maximumMemoryBytes - admittedWithoutStaging >= bound)
+
+        if !canStageChunks {
+            var out = Data(count: 64)
+            out.reserveCapacity(min(bound, max(128, image.storage.byteCount * 3 / 4 + 64)))
+            func writeHeaderWord(_ value: Int, slot: Int) throws {
+                guard let word = UInt32(exactly: value) else {
+                    throw CodecError(.resourceLimitExceeded, "Frame offset exceeds UInt32.")
+                }
+                for n in 0..<4 {
+                    out[slot * 4 + n] = UInt8(truncatingIfNeeded: word >> (8 * n))
+                }
+            }
+            try writeHeaderWord(segmentCount, slot: 0)
+
+            try image.storage.withUnsafeBytes { bytes in
+                guard bytes.count == image.storage.byteCount,
+                      bytes.count >= image.descriptor.requiredByteCount,
+                      let rawBase = bytes.baseAddress else {
+                    throw CodecError(.storageUnavailable, "Inconsistent source borrow.")
+                }
+                let srcU8 = rawBase.assumingMemoryBound(to: UInt8.self)
+                try withUnsafeTemporaryAllocation(of: UInt8.self, capacity: maxRowBytes + frame.width) { tmp in
+                    let rowOutPtr = tmp.baseAddress!
+                    let lanePtr = rowOutPtr.advanced(by: maxRowBytes)
+                    for segment in 0..<segmentCount {
+                        try writeHeaderWord(out.count, slot: segment + 1)
+                        let segStart = out.count
+                        let lane = segment % frame.bytesPerSample
+                        let addr = immutableAddressings[segment]
+                        let directContiguous8 = (frame.storageBits == 8 && frame.meaningfulBits == 8 && addr.pixelStride == 1)
+                        for y in 0..<frame.height {
+                            if (y & 63) == 0 {
+                                try gate.check()
+                            }
+                            let rowStart = addr.offset + y * addr.rowBytes
+                            let nEncoded: Int
+                            if directContiguous8 {
+                                nEncoded = try SIMDPackBits.encodeContiguousRow(
+                                    src: srcU8.advanced(by: rowStart),
+                                    count: frame.width,
+                                    dst: rowOutPtr,
+                                    periodicCheck: { try gate.check() }
+                                )
+                            } else {
+                                try SIMDPackBits.gatherRowLane(
+                                    bytes: bytes,
+                                    rowOffset: rowStart,
+                                    width: frame.width,
+                                    pixelStride: addr.pixelStride,
+                                    storageBits: frame.storageBits,
+                                    meaningfulBits: frame.meaningfulBits,
+                                    sampleType: frame.sampleType,
+                                    effectiveOrder: effectiveOrder,
+                                    lane: lane,
+                                    laneBuffer: lanePtr
+                                )
+                                nEncoded = try SIMDPackBits.encodeContiguousRow(
+                                    src: lanePtr,
+                                    count: frame.width,
+                                    dst: rowOutPtr,
+                                    periodicCheck: { try gate.check() }
+                                )
+                            }
+                            out.append(rowOutPtr, count: nEncoded)
+                        }
+                        if (out.count - segStart) % 2 != 0 {
+                            out.append(0)
+                        }
+                        options.progress?(try ProgressUpdate(phase: .processing, completedUnits: segment + 1, totalUnits: segmentCount))
+                        try gate.check()
+                    }
+                }
+            }
+            guard UInt64(out.count) <= UInt64(UInt32.max),
+                  out.count <= options.resourceLimits.maximumCompressedBytes else {
+                throw CodecError(.resourceLimitExceeded, "Encoded RLE frame exceeds compressed limit.")
+            }
+            options.progress?(try ProgressUpdate(phase: .completed, completedUnits: segmentCount, totalUnits: segmentCount))
+            try gate.check()
+            return EncodedImage(
+                data: out,
+                encoding: EncodingDescription(format: "dicom-rle", mode: .lossless),
+                report: report(backend: resolved.backend, capacity: image.storage.byteCount, allocations: 0, workspaceBytes: 0, fallback: resolved.fallbackReason)
+            )
+        }
+
         let rowsPerStrip = (frame.height + stripsPerSegment - 1) / stripsPerSegment
         let chunksMutex = Mutex<[[UInt8]]>([[UInt8]](repeating: [], count: totalJobs))
 
@@ -506,10 +745,12 @@ public enum DICOMRLEFrame {
                 let directContiguous8 = (frame.storageBits == 8 && frame.meaningfulBits == 8 && addr.pixelStride == 1)
 
                 let stripRows = yEnd - yStart
-                let maxStripBytes = max(16, rowBound * stripRows)
-                let stripOut = try [UInt8](unsafeUninitializedCapacity: maxStripBytes) { dstBuf, initializedCount in
-                    let dstBase = dstBuf.baseAddress!
-                    var writePos = 0
+                var stripOut = [UInt8]()
+                stripOut.reserveCapacity(min(rowBound * stripRows, max(64, stripRows * frame.width * 3 / 4)))
+
+                try withUnsafeTemporaryAllocation(of: UInt8.self, capacity: maxRowBytes + (directContiguous8 ? 0 : frame.width)) { tmp in
+                    let rowOutPtr = tmp.baseAddress!
+                    let lanePtr = rowOutPtr.advanced(by: maxRowBytes)
                     if directContiguous8 {
                         for y in yStart..<yEnd {
                             if ((y - yStart) & 63) == 0 {
@@ -519,43 +760,38 @@ public enum DICOMRLEFrame {
                             let nEncoded = try SIMDPackBits.encodeContiguousRow(
                                 src: srcU8.advanced(by: rowStart),
                                 count: frame.width,
-                                dst: dstBase.advanced(by: writePos),
+                                dst: rowOutPtr,
                                 periodicCheck: { try gate.check() }
                             )
-                            writePos += nEncoded
+                            stripOut.append(contentsOf: UnsafeBufferPointer(start: rowOutPtr, count: nEncoded))
                         }
                     } else {
-                        var laneScratch = [UInt8](repeating: 0, count: frame.width)
-                        try laneScratch.withUnsafeMutableBufferPointer { laneBuf in
-                            let lanePtr = laneBuf.baseAddress!
-                            for y in yStart..<yEnd {
-                                if ((y - yStart) & 63) == 0 {
-                                    try gate.check()
-                                }
-                                let rowStart = addr.offset + y * addr.rowBytes
-                                try SIMDPackBits.gatherRowLane(
-                                    bytes: srcBuf,
-                                    rowOffset: rowStart,
-                                    width: frame.width,
-                                    pixelStride: addr.pixelStride,
-                                    storageBits: frame.storageBits,
-                                    meaningfulBits: frame.meaningfulBits,
-                                    sampleType: frame.sampleType,
-                                    effectiveOrder: effectiveOrder,
-                                    lane: lane,
-                                    laneBuffer: lanePtr
-                                )
-                                let nEncoded = try SIMDPackBits.encodeContiguousRow(
-                                    src: lanePtr,
-                                    count: frame.width,
-                                    dst: dstBase.advanced(by: writePos),
-                                    periodicCheck: { try gate.check() }
-                                )
-                                writePos += nEncoded
+                        for y in yStart..<yEnd {
+                            if ((y - yStart) & 63) == 0 {
+                                try gate.check()
                             }
+                            let rowStart = addr.offset + y * addr.rowBytes
+                            try SIMDPackBits.gatherRowLane(
+                                bytes: srcBuf,
+                                rowOffset: rowStart,
+                                width: frame.width,
+                                pixelStride: addr.pixelStride,
+                                storageBits: frame.storageBits,
+                                meaningfulBits: frame.meaningfulBits,
+                                sampleType: frame.sampleType,
+                                effectiveOrder: effectiveOrder,
+                                lane: lane,
+                                laneBuffer: lanePtr
+                            )
+                            let nEncoded = try SIMDPackBits.encodeContiguousRow(
+                                src: lanePtr,
+                                count: frame.width,
+                                dst: rowOutPtr,
+                                periodicCheck: { try gate.check() }
+                            )
+                            stripOut.append(contentsOf: UnsafeBufferPointer(start: rowOutPtr, count: nEncoded))
                         }
                     }
-                    initializedCount = writePos
                 }
 
                 chunksMutex.withLock { $0[job] = stripOut }
@@ -566,11 +802,14 @@ public enum DICOMRLEFrame {
         var segmentOffsets = [Int](repeating: 0, count: segmentCount)
         var segmentRawLengths = [Int](repeating: 0, count: segmentCount)
         var totalSize = 64
+        var totalChunkBytes = 0
         for segment in 0..<segmentCount {
             segmentOffsets[segment] = totalSize
             var segLen = 0
             for strip in 0..<stripsPerSegment {
-                segLen += chunks[segment * stripsPerSegment + strip].count
+                let cLen = chunks[segment * stripsPerSegment + strip].count
+                segLen += cLen
+                totalChunkBytes += cLen
             }
             segmentRawLengths[segment] = segLen
             totalSize += segLen + (segLen % 2)
@@ -619,7 +858,7 @@ public enum DICOMRLEFrame {
         return EncodedImage(
             data: out,
             encoding: EncodingDescription(format: "dicom-rle", mode: .lossless),
-            report: report(backend: resolved.backend, capacity: image.storage.byteCount, allocations: 0, fallback: resolved.fallbackReason)
+            report: report(backend: resolved.backend, capacity: image.storage.byteCount, allocations: 0, workspaceBytes: totalChunkBytes, fallback: resolved.fallbackReason)
         )
     }
 
@@ -638,7 +877,7 @@ struct FrameGate {
         deadline = ContinuousClock().now.advanced(by: .nanoseconds(Int64(limits.deadlineSeconds * 1_000_000_000)))
     }
     func check() throws {
-        try Task.checkCancellation()
+        try BoundedParallelPool.checkCancellation()
         guard ContinuousClock().now <= deadline else { throw CodecError(.resourceLimitExceeded, "Frame deadline exceeded.") }
     }
 }
